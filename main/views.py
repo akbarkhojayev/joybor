@@ -197,8 +197,20 @@ class FloorListView(generics.ListCreateAPIView):
     serializer_class = FloorSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['dormitory', 'gender']
+    filterset_fields = ['gender']
 
+    def perform_create(self, serializer):
+        user = self.request.user
+
+        if user.role != 'admin':
+            raise PermissionDenied("Siz yotoqxona admini emassiz !!!")
+
+        try:
+            dormitory = Dormitory.objects.get(admin=user)
+        except Dormitory.DoesNotExist:
+            raise PermissionDenied("Sizga tegishli yotoqxona mavjud emas !!!")
+
+        serializer.save(dormitory=dormitory)
 
 class FloorDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Floor.objects.all()
@@ -212,7 +224,7 @@ class RoomListView(generics.ListCreateAPIView):
     serializer_class = RoomSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['floor', 'status', 'gender']
+    filterset_fields = ['floor', 'status',]
 
 
 class RoomDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -337,7 +349,7 @@ class PaymentListView(generics.ListAPIView):
     serializer_class = PaymentSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['student', 'dormitory', 'status', 'method']
+    filterset_fields = ['student', 'status', 'method']
     
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
@@ -355,6 +367,15 @@ class PaymentCreateView(generics.CreateAPIView):
     serializer_class = PaymentSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
 
+    def perform_create(self, serializer):
+        student = serializer.validated_data['student']
+
+        try:
+            dormitory = student.floor.dormitory
+        except AttributeError:
+            raise serializers.ValidationError("Studentning floor yoki dormitorysi mavjud emas!")
+
+        serializer.save(dormitory=dormitory)
 
 class PaymentDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = PaymentSerializer
@@ -489,7 +510,7 @@ class UserNotificationDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class UserNotificationMarkAsReadView(APIView):
     permission_classes = [IsAuthenticated]
-    
+
     def post(self, request, pk):
         try:
             notification = UserNotification.objects.get(pk=pk, user=request.user)

@@ -1,8 +1,9 @@
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import *
 
 @admin.register(User)
-class UserAdmin(admin.ModelAdmin):
+class UserAdmin(BaseUserAdmin):
     list_display = ['username', 'email', 'role', 'is_active']
     list_filter = ['role', 'is_active']
     search_fields = ['username', 'email']
@@ -57,8 +58,8 @@ class FloorAdmin(admin.ModelAdmin):
 
 @admin.register(Room)
 class RoomAdmin(admin.ModelAdmin):
-    list_display = ['name', 'floor', 'capacity', 'current_occupancy', 'status', 'gender']
-    list_filter = ['floor', 'status', 'gender']
+    list_display = ['name', 'floor', 'capacity', 'current_occupancy', 'status',]
+    list_filter = ['floor', 'status',]
     search_fields = ['name']
 
 @admin.register(Student)

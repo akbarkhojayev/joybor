@@ -1,13 +1,33 @@
 from rest_framework import serializers
 from .models import *
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth import get_user_model
 
+User = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'role', 'first_name', 'last_name']
-        read_only_fields = ['id']
+        fields = ['id', 'username', 'password', 'role', 'email']
+        extra_kwargs = {'password': {'write_only': True}}
+
+    def validate(self, attrs):
+        request_user = self.context['request'].user
+        role = attrs.get('role')
+        dormitory = attrs.get('dormitory')
+
+        if request_user.role == 'admin':
+            if role in ['teacher', 'student', 'manager']:
+                if not dormitory or dormitory.admin != request_user:
+                    raise serializers.ValidationError("Siz faqat o'z Dormitoryingizga foydalanuvchi qo'sha olasiz.")
+        return attrs
+
+    def create(self, validated_data):
+        password = validated_data.pop('password')
+        user = User(**validated_data)
+        user.set_password(password)
+        user.save()
+        return user
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -77,12 +97,10 @@ class RuleSerializer(serializers.ModelSerializer):
 
 
 class FloorSerializer(serializers.ModelSerializer):
-    dormitory_name = serializers.CharField(source='dormitory.name', read_only=True)
-    
+
     class Meta:
         model = Floor
-        fields = '__all__'
-
+        fields = ['id', 'name', 'gender']
 
 class RoomSerializer(serializers.ModelSerializer):
     floor_name = serializers.CharField(source='floor.name', read_only=True)
@@ -128,12 +146,10 @@ class ApplicationSerializer(serializers.ModelSerializer):
 
 
 class PaymentSerializer(serializers.ModelSerializer):
-    student_name = serializers.CharField(source='student.name', read_only=True)
-    dormitory_name = serializers.CharField(source='dormitory.name', read_only=True)
-    
+
     class Meta:
         model = Payment
-        fields = '__all__'
+        fields = ['student','amount', 'paid_date','valid_until','method','status','comment']
 
 
 class TaskSerializer(serializers.ModelSerializer):

@@ -108,7 +108,6 @@ class Room(models.Model):
     floor = models.ForeignKey(Floor, on_delete=models.CASCADE)
     capacity = models.IntegerField(blank=True, null=True)
     current_occupancy = models.IntegerField(default=0)
-    gender = models.CharField(choices=(('male', 'male'), ('female', 'female')), max_length=20)
     status = models.CharField(choices=(('AVAILABLE', 'AVAILABLE'), ('PARTIALLY_OCCUPIED', 'PARTIALLY_OCCUPIED'),
                                        ('FULLY_OCCUPIED', 'FULLY_OCCUPIED')), max_length=20, default='AVAILABLE')
 
