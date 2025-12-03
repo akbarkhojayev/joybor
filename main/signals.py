@@ -49,5 +49,5 @@ def handle_application_approval(sender, instance, created, **kwargs):
         if instance.user:
             ApplicationNotification.objects.create(
                 user=instance.user,
-                message=f"Arizangiz rad etildi. Sabab: {instance.admin_comment or 'Sabab ko\'rsatilmagan'}"
+                message=f"Arizangiz rad etildi. Sabab: {instance.admin_comment or 'Sabab korsatilmagan'}"
             )
