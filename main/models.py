@@ -103,13 +103,46 @@ class Floor(models.Model):
     def __str__(self):
         return self.name
 
+    @property
+    def available_rooms(self):
+        return self.room_set.filter(status='AVAILABLE').count()
+
+    @property
+    def partially_occupied_rooms(self):
+        return self.room_set.filter(status='PARTIALLY_OCCUPIED').count()
+
+    @property
+    def fully_occupied_rooms(self):
+        return self.room_set.filter(status='FULLY_OCCUPIED').count()
+
+
 class Room(models.Model):
     name = models.CharField(max_length=60)
     floor = models.ForeignKey(Floor, on_delete=models.CASCADE)
     capacity = models.IntegerField(blank=True, null=True)
     current_occupancy = models.IntegerField(default=0)
+    gender = models.CharField(choices=(('male', 'male'), ('female', 'female')), max_length=20, default='male')
     status = models.CharField(choices=(('AVAILABLE', 'AVAILABLE'), ('PARTIALLY_OCCUPIED', 'PARTIALLY_OCCUPIED'),
                                        ('FULLY_OCCUPIED', 'FULLY_OCCUPIED')), max_length=20, default='AVAILABLE')
+
+    @property
+    def free_beds(self):
+        if not self.capacity:
+            return 0
+        return max(self.capacity - self.current_occupancy, 0)
+
+    def save(self, *args, **kwargs):
+        # 1) Xonadagi talabalar sonini avtomatik olis
+
+        # 2) Statusni avtomatik tushirish
+        if self.current_occupancy == 0:
+            self.status = 'AVAILABLE'
+        elif self.capacity and self.current_occupancy < self.capacity:
+            self.status = 'PARTIALLY_OCCUPIED'
+        else:
+            self.status = 'FULLY_OCCUPIED'
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
@@ -145,7 +178,7 @@ class Student(models.Model):
     district = models.ForeignKey(District, on_delete=models.CASCADE, default=1)
     faculty = models.CharField(max_length=120, blank=True, null=True)
     direction = models.CharField(max_length=120, blank=True, null=True)
-    dormitory = models.ForeignKey(Dormitory, on_delete=models.CASCADE)
+    dormitory = models.ForeignKey(Dormitory, on_delete=models.CASCADE, blank=True, null=True)
     floor = models.ForeignKey(Floor, on_delete=models.CASCADE, blank=True, null=True, related_name='students')
     passport = models.CharField(max_length=9, unique=True, blank=True, null=True)
     group = models.CharField(max_length=120, blank=True, null=True)
@@ -161,7 +194,8 @@ class Student(models.Model):
     privilege_share = models.PositiveIntegerField(default=0)
     accepted_date = models.DateTimeField(auto_now_add=True)
     status = models.CharField(max_length=120, choices=STATUS_CHOICES, default='Tekshirilmaydi')
-    placement_status = models.CharField(max_length=120, choices=PLACEMENT_STATUS_CHOICES, default='1-kurs')
+    placement_status = models.CharField(max_length=120, choices=PLACEMENT_STATUS_CHOICES, default='Qabul qilindi')
+    is_active = models.BooleanField(default=False, help_text="Xona biriktirilgandan keyin true bo'ladi")
 
     class Meta:
         verbose_name = 'Student'
@@ -171,7 +205,6 @@ class Student(models.Model):
         return self.name
 
 class Application(models.Model):
-
     STATUS_CHOICES = (
     ('Pending', 'Pending'),
     ('Approved', 'Approved'),
@@ -195,6 +228,7 @@ class Application(models.Model):
     document = models.FileField(upload_to='application_documents/', blank=True, null=True)
     status = models.CharField(max_length=120, choices=STATUS_CHOICES, default='Pending')
     comment = models.TextField(blank=True, null=True)
+    admin_comment = models.TextField(blank=True, null=True, help_text="Admin tomonidan qoldirilgan izoh")
     created_at = models.DateTimeField(auto_now_add=True)
     passport_image_first = models.ImageField(upload_to='passport_image/', blank=True, null=True)
     passport_image_second = models.ImageField(upload_to='passport_image/', blank=True, null=True)

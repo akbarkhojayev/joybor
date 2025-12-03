@@ -35,6 +35,8 @@ python manage.py makemigrations
 python manage.py migrate
 ```
 
+**Muhim:** Agar migration paytida Room.gender uchun default qiymat so'ralsa, `'male'` yoki `'female'` kiriting.
+
 4. Superuser yarating:
 ```bash
 python manage.py createsuperuser
@@ -45,6 +47,8 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
+**Qo'shimcha:** Migration haqida batafsil ma'lumot uchun [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) ga qarang.
+
 ## API Endpoints
 
 ### Autentifikatsiya
@@ -52,6 +56,10 @@ python manage.py runserver
 - `POST /api/token/` - Token olish
 - `POST /api/token/refresh/` - Tokenni yangilash
 - `GET /api/me/` - Joriy foydalanuvchi ma'lumotlari
+- `PUT/PATCH /api/me/` - Profilni tahrirlash
+
+### Admin Dashboard
+- `GET /api/admin/dashboard/` - To'liq statistika (talabalar, xonalar, to'lovlar, arizalar)
 
 ### Foydalanuvchilar
 - `GET /api/users/` - Foydalanuvchilar ro'yxati
@@ -73,13 +81,29 @@ python manage.py runserver
 - `GET /api/students/{id}/` - Talaba ma'lumotlari
 - `PUT /api/students/{id}/` - Talabani yangilash
 - `DELETE /api/students/{id}/` - Talabani o'chirish
+- `GET /api/students/unassigned/` - Xonaga joylashtirilmagan talabalar
+- `PUT/PATCH /api/students/{id}/assign-room/` - Talabaga xona biriktirish (is_active=true bo'ladi)
+- `PUT/PATCH /api/students/{id}/remove-room/` - Talabani xonadan chiqarish (is_active=false bo'ladi)
 
 ### Arizalar
 - `GET /api/applications/` - Arizalar ro'yxati
 - `POST /api/applications/create/` - Yangi ariza
 - `GET /api/applications/{id}/` - Ariza ma'lumotlari
-- `POST /api/applications/{id}/approve/` - Arizani tasdiqlash
-- `POST /api/applications/{id}/reject/` - Arizani rad etish
+- `PUT/PATCH /api/applications/{id}/approve/` - Arizani tasdiqlash (admin_comment bilan, avtomatik Student yaratadi)
+- `PUT/PATCH /api/applications/{id}/reject/` - Arizani rad etish (admin_comment bilan)
+
+### Talaba Dashboard (Student endpoints)
+- `GET /api/student/dashboard/` - Talabaning to'liq ma'lumotlari (xona, xonadoshlar, to'lovlar)
+- `GET /api/student/payments/` - Talabaning to'lovlar tarixi
+- `GET /api/student/roommates/` - Xonadoshlar ro'yxati
+- `GET /api/student/attendance/` - Davomat ma'lumotlari
+- `GET /api/student/collections/` - Yig'imlar ma'lumotlari
+
+### Bildirishnomalar (Unified Notifications)
+- `GET /api/notifications/` - Barcha bildirishnomalar (bitta endpoint)
+- `POST /api/notifications/mark-read/` - Bildirishnomani o'qilgan deb belgilash
+- `POST /api/notifications/mark-all-read/` - Barcha bildirishnomalarni o'qilgan deb belgilash
+- `GET /api/notifications/unread-count/` - O'qilmagan bildirishnomalar soni
 
 ### To'lovlar
 - `GET /api/payments/` - To'lovlar ro'yxati

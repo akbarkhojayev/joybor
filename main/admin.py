@@ -58,8 +58,8 @@ class FloorAdmin(admin.ModelAdmin):
 
 @admin.register(Room)
 class RoomAdmin(admin.ModelAdmin):
-    list_display = ['name', 'floor', 'capacity', 'current_occupancy', 'status',]
-    list_filter = ['floor', 'status',]
+    list_display = ['name', 'floor', 'capacity', 'current_occupancy', 'gender', 'status']
+    list_filter = ['floor', 'gender', 'status']
     search_fields = ['name']
 
 @admin.register(Student)

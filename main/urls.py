@@ -6,6 +6,9 @@ urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
     path('me/', CurrentUserView.as_view(), name='current-user'),
     
+    # Admin Dashboard
+    path('admin/dashboard/', AdminDashboardStatsView.as_view(), name='admin-dashboard'),
+    
     # Users
     path('users/', UserListView.as_view(), name='user-list'),
     path('users/create/', UserCreateView.as_view(), name='user-create'),
@@ -56,13 +59,28 @@ urlpatterns = [
     path('students/', StudentListView.as_view(), name='student-list'),
     path('students/create/', StudentCreateView.as_view(), name='student-create'),
     path('students/<int:pk>/', StudentDetailView.as_view(), name='student-detail'),
+    path('students/unassigned/', UnassignedStudentsView.as_view(), name='unassigned-students'),
+    path('students/<int:student_id>/assign-room/', AssignRoomToStudentView.as_view(), name='assign-room'),
+    path('students/<int:student_id>/remove-room/', RemoveStudentFromRoomView.as_view(), name='remove-room'),
+    
+    # Student Dashboard (Talaba uchun maxsus endpointlar)
+    path('student/dashboard/', StudentDashboardView.as_view(), name='student-dashboard'),
+    path('student/payments/', StudentPaymentsView.as_view(), name='student-payments'),
+    path('student/roommates/', StudentRoommatesView.as_view(), name='student-roommates'),
+    path('student/attendance/', StudentAttendanceView.as_view(), name='student-attendance'),
+    path('student/collections/', StudentCollectionsView.as_view(), name='student-collections'),
+    # Notifications - Bitta unified endpoint
+    path('notifications/', NotificationsView.as_view(), name='notifications'),
+    path('notifications/mark-read/', MarkNotificationAsReadView.as_view(), name='mark-notification-read'),
+    path('notifications/mark-all-read/', MarkAllNotificationsAsReadView.as_view(), name='mark-all-notifications-read'),
+    path('notifications/unread-count/', UnreadNotificationCountView.as_view(), name='unread-notification-count'),
     
     # Applications
     path('applications/', ApplicationListView.as_view(), name='application-list'),
     path('applications/create/', ApplicationCreateView.as_view(), name='application-create'),
     path('applications/<int:pk>/', ApplicationDetailView.as_view(), name='application-detail'),
-    path('applications/<int:pk>/approve/', ApplicationApproveView.as_view(), name='application-approve'),
-    path('applications/<int:pk>/reject/', ApplicationRejectView.as_view(), name='application-reject'),
+    path('applications/<int:pk>/approve/', ApplicationApproveView.as_view(), name='application-approve'),  # PUT/PATCH
+    path('applications/<int:pk>/reject/', ApplicationRejectView.as_view(), name='application-reject'),  # PUT/PATCH
     
     # Payments
     path('payments/', PaymentListView.as_view(), name='payment-list'),
@@ -83,18 +101,7 @@ urlpatterns = [
     path('apartment-images/', ApartmentImageListView.as_view(), name='apartment-image-list'),
     path('apartment-images/<int:pk>/', ApartmentImageDetailView.as_view(), name='apartment-image-detail'),
     
-    # Notifications
-    path('notifications/', NotificationListView.as_view(), name='notification-list'),
-    path('notifications/<int:pk>/', NotificationDetailView.as_view(), name='notification-detail'),
-    
-    # User Notifications
-    path('user-notifications/', UserNotificationListView.as_view(), name='user-notification-list'),
-    path('user-notifications/<int:pk>/', UserNotificationDetailView.as_view(), name='user-notification-detail'),
-    path('user-notifications/<int:pk>/mark-as-read/', UserNotificationMarkAsReadView.as_view(), name='user-notification-mark-read'),
-    
-    # Application Notifications
-    path('application-notifications/', ApplicationNotificationListView.as_view(), name='application-notification-list'),
-    path('application-notifications/<int:pk>/', ApplicationNotificationDetailView.as_view(), name='application-notification-detail'),
+    # Notifications - Faqat bitta unified endpoint
     
     # Floor Leaders
     path('floor-leaders/', FloorLeaderListView.as_view(), name='floor-leader-list'),
@@ -126,4 +133,5 @@ urlpatterns = [
     # Duty Schedules
     path('duty-schedules/', DutyScheduleListView.as_view(), name='duty-schedule-list'),
     path('duty-schedules/<int:pk>/', DutyScheduleDetailView.as_view(), name='duty-schedule-detail'),
+
 ]

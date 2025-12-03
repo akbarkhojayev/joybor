@@ -2,7 +2,7 @@ from rest_framework.permissions import BasePermission, IsAdminUser
 from .models import *
 from rest_framework.exceptions import PermissionDenied
 
-class IsStudnet(BasePermission):
+class IsStudent(BasePermission):
     def has_permission(self,request,view):
         return request.user.is_authenticated and Student.objects.filter(user=request.user).exists()
 
