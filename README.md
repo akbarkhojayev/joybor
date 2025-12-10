@@ -60,6 +60,9 @@ python manage.py runserver
 
 ### Admin Dashboard
 - `GET /api/admin/dashboard/` - To'liq statistika (talabalar, xonalar, to'lovlar, arizalar)
+- `GET /api/admin/my-dormitories/` - O'z yotoqxonalari ro'yxati
+- `GET /api/admin/my-dormitory/` - O'z yotoqxonasi ma'lumotlari (birinchisi)
+- `PUT/PATCH /api/admin/my-dormitory/` - Yotoqxonani tahrirlash
 
 ### Foydalanuvchilar
 - `GET /api/users/` - Foydalanuvchilar ro'yxati

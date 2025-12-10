@@ -712,3 +712,153 @@ Content-Type: multipart/form-data
 4. **First_name, Last_name** - Yangilash mumkin
 5. **Image** - Multipart/form-data orqali yuklash
 6. **Barcha fieldlar** - Ixtiyoriy (PATCH bilan qisman yangilash)
+
+
+## 24. Admin - O'z Yotoqxonalari Ro'yxati
+
+```bash
+GET /api/admin/my-dormitories/
+Authorization: Bearer [admin_token]
+
+# Response:
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 1,
+      "name": "Yotoqxona #1",
+      "address": "Toshkent, Chilonzor tumani",
+      "university_name": "TATU",
+      "month_price": 500000,
+      "year_price": 5000000,
+      "is_active": true,
+      ...
+    }
+  ]
+}
+```
+
+## 25. Admin - O'z Yotoqxonasini Ko'rish
+
+```bash
+GET /api/admin/my-dormitory/
+Authorization: Bearer [admin_token]
+
+# Response:
+{
+  "id": 1,
+  "name": "Yotoqxona #1",
+  "address": "Toshkent, Chilonzor tumani, Bunyodkor ko'chasi 1",
+  "university": 1,
+  "university_name": "Toshkent Axborot Texnologiyalari Universiteti",
+  "description": "Zamonaviy yotoqxona, barcha qulayliklar mavjud",
+  "admin": 2,
+  "admin_name": "admin_user",
+  "month_price": 500000,
+  "year_price": 5000000,
+  "latitude": 41.311081,
+  "longitude": 69.240562,
+  "rating": 5,
+  "is_active": true,
+  "images": [
+    {
+      "id": 1,
+      "image": "http://localhost:8000/media/dormitories/image1.jpg"
+    }
+  ],
+  "amenities_list": [
+    {
+      "id": 1,
+      "name": "Wi-Fi",
+      "is_active": true
+    },
+    {
+      "id": 2,
+      "name": "Konditsioner",
+      "is_active": true
+    }
+  ]
+}
+```
+
+## 26. Admin - Yotoqxonani Tahrirlash
+
+```bash
+PUT /api/admin/my-dormitory/
+# yoki
+PATCH /api/admin/my-dormitory/
+Authorization: Bearer [admin_token]
+Content-Type: application/json
+
+{
+  "name": "Yotoqxona #1 (Yangilangan)",
+  "address": "Toshkent, Chilonzor tumani, Bunyodkor ko'chasi 1-uy",
+  "description": "Zamonaviy yotoqxona, barcha qulayliklar mavjud. WiFi, konditsioner, issiq suv 24/7",
+  "month_price": 550000,
+  "year_price": 5500000,
+  "latitude": 41.311081,
+  "longitude": 69.240562,
+  "rating": 5
+}
+
+# Response:
+{
+  "id": 1,
+  "name": "Yotoqxona #1 (Yangilangan)",
+  "address": "Toshkent, Chilonzor tumani, Bunyodkor ko'chasi 1-uy",
+  "university": 1,
+  "university_name": "Toshkent Axborot Texnologiyalari Universiteti",
+  "description": "Zamonaviy yotoqxona, barcha qulayliklar mavjud. WiFi, konditsioner, issiq suv 24/7",
+  "admin": 2,
+  "admin_name": "admin_user",
+  "month_price": 550000,
+  "year_price": 5500000,
+  "latitude": 41.311081,
+  "longitude": 69.240562,
+  "rating": 5,
+  "is_active": true,
+  ...
+}
+```
+
+## 27. Admin - Qisman Yangilash (PATCH)
+
+```bash
+PATCH /api/admin/my-dormitory/
+Authorization: Bearer [admin_token]
+Content-Type: application/json
+
+{
+  "month_price": 600000,
+  "description": "Yangi tavsif"
+}
+
+# Response:
+{
+  "id": 1,
+  "name": "Yotoqxona #1",
+  "month_price": 600000,
+  "description": "Yangi tavsif",
+  ...
+}
+```
+
+### Tahrirlash Imkoniyatlari
+
+**Tahrirlash mumkin:**
+- ✅ name - Yotoqxona nomi
+- ✅ address - Manzil
+- ✅ description - Tavsif
+- ✅ month_price - Oylik narx
+- ✅ year_price - Yillik narx
+- ✅ latitude, longitude - Koordinatalar
+- ✅ rating - Reyting
+- ✅ amenities - Qulayliklar (ManyToMany)
+
+**Tahrirlash mumkin emas:**
+- ❌ id
+- ❌ admin - Faqat superuser o'zgartiradi
+- ❌ university - Faqat superuser o'zgartiradi
+- ❌ is_active - Faqat superuser o'zgartiradi

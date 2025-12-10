@@ -8,6 +8,8 @@ urlpatterns = [
     
     # Admin Dashboard
     path('admin/dashboard/', AdminDashboardStatsView.as_view(), name='admin-dashboard'),
+    path('admin/my-dormitories/', MyDormitoriesListView.as_view(), name='my-dormitories-list'),
+    path('admin/my-dormitory/', MyDormitoryView.as_view(), name='my-dormitory'),
     
     # Users
     path('users/', UserListView.as_view(), name='user-list'),

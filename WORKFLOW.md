@@ -613,3 +613,109 @@ image: [file]
 ### Avtomatik Profil Yaratish
 
 Agar foydalanuvchida profil bo'lmasa, birinchi marta `/api/me/` ga so'rov yuborilganda avtomatik yaratiladi.
+
+
+## 11. Admin - O'z Yotoqxonasini Boshqarish
+
+Admin o'z yotoqxonasi ma'lumotlarini ko'rishi va tahrirlashi mumkin.
+
+### Yotoqxonalar Ro'yxati
+
+**Endpoint:** `GET /api/admin/my-dormitories/`
+
+Agar admin bir nechta yotoqxonaga mas'ul bo'lsa, barchasini ko'radi.
+
+**Query Parameters:**
+- `search` - Nom yoki manzil bo'yicha qidirish
+- `is_active` - Faol yotoqxonalarni filterlash
+
+**Response:**
+```json
+{
+  "count": 1,
+  "results": [
+    {
+      "id": 1,
+      "name": "Yotoqxona #1",
+      "address": "Toshkent, Chilonzor",
+      "university_name": "TATU",
+      "month_price": 500000,
+      "is_active": true
+    }
+  ]
+}
+```
+
+### Bitta Yotoqxonani Ko'rish
+
+**Endpoint:** `GET /api/admin/my-dormitory/`
+
+Admin o'z birinchi yotoqxonasini ko'radi (odatda bitta bo'ladi).
+
+**Response:**
+```json
+{
+  "id": 1,
+  "name": "Yotoqxona #1",
+  "address": "Toshkent, Chilonzor tumani, Bunyodkor ko'chasi 1",
+  "university": 1,
+  "university_name": "Toshkent Axborot Texnologiyalari Universiteti",
+  "description": "Zamonaviy yotoqxona",
+  "admin": 2,
+  "admin_name": "admin_user",
+  "month_price": 500000,
+  "year_price": 5000000,
+  "latitude": 41.311081,
+  "longitude": 69.240562,
+  "rating": 5,
+  "is_active": true,
+  "images": [...],
+  "amenities_list": [...]
+}
+```
+
+### Yotoqxonani Tahrirlash
+
+**Endpoint:** `PUT /api/admin/my-dormitory/` yoki `PATCH /api/admin/my-dormitory/`
+
+**Request body:**
+```json
+{
+  "name": "Yotoqxona #1 (Yangilangan)",
+  "address": "Toshkent, Chilonzor tumani, Bunyodkor ko'chasi 1-uy",
+  "description": "Zamonaviy yotoqxona, barcha qulayliklar mavjud",
+  "month_price": 550000,
+  "year_price": 5500000,
+  "latitude": 41.311081,
+  "longitude": 69.240562,
+  "rating": 5
+}
+```
+
+### Tahrirlash Qoidalari
+
+1. **Admin** - Faqat o'z yotoqxonasini tahrirlaydi
+2. **Superuser** - Barcha yotoqxonalarni tahrirlaydi
+3. **University va Admin** - O'zgartirish uchun superuser kerak
+4. **Amenities** - ManyToMany field, ID lar ro'yxati orqali yangilanadi
+
+### Qisman Yangilash
+
+PATCH method bilan faqat kerakli fieldlarni yangilash:
+
+```json
+{
+  "month_price": 600000,
+  "description": "Yangi tavsif"
+}
+```
+
+### Xatoliklar
+
+**404 Not Found:**
+- Admin ga yotoqxona biriktirilmagan
+- Yotoqxona o'chirilgan
+
+**403 Forbidden:**
+- Foydalanuvchi admin emas
+- Boshqa adminning yotoqxonasini tahrirlashga urinish

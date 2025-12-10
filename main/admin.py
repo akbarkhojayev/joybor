@@ -2,12 +2,20 @@ from django.contrib import admin
 from django.contrib.admin import ModelAdmin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import *
+from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from .models import User, UserProfile, Province
 
 @admin.register(User)
-class UserAdmin(ModelAdmin):
+class UserAdmin(BaseUserAdmin):
     list_display = ['username', 'email', 'role', 'is_active']
     list_filter = ['role', 'is_active']
     search_fields = ['username', 'email']
+
+    # Parol va boshqa maydonlar
+    fieldsets = BaseUserAdmin.fieldsets + (
+        ('Role info', {'fields': ('role',)}),
+    )
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):

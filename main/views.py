@@ -1164,3 +1164,51 @@ class AdminDashboardStatsView(APIView):
                 "cancelled": cancelled_applications
             }
         }, status=status.HTTP_200_OK)
+
+
+
+class MyDormitoryView(generics.RetrieveUpdateAPIView):
+    """Admin o'z yotoqxonasini ko'rish va tahrirlash"""
+    serializer_class = DormitorySerializer
+    permission_classes = [IsDormitoryAdmin]
+    
+    def get_object(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return None
+        
+        user = self.request.user
+        
+        # Superuser barcha yotoqxonalarni ko'radi (birinchisini)
+        if user.is_superuser:
+            dormitory = Dormitory.objects.first()
+            if not dormitory:
+                raise NotFound("Hech qanday yotoqxona topilmadi")
+            return dormitory
+        
+        # Admin o'z yotoqxonasini ko'radi
+        try:
+            return Dormitory.objects.get(admin=user)
+        except Dormitory.DoesNotExist:
+            raise NotFound("Sizga biriktirilgan yotoqxona topilmadi")
+
+
+class MyDormitoriesListView(generics.ListAPIView):
+    """Admin o'z yotoqxonalari ro'yxati (agar bir nechta bo'lsa)"""
+    serializer_class = DormitorySerializer
+    permission_classes = [IsDormitoryAdmin]
+    filter_backends = [filters.SearchFilter, DjangoFilterBackend]
+    search_fields = ['name', 'address']
+    filterset_fields = ['is_active']
+    
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Dormitory.objects.none()
+        
+        user = self.request.user
+        
+        # Superuser barcha yotoqxonalarni ko'radi
+        if user.is_superuser:
+            return Dormitory.objects.all()
+        
+        # Admin o'z yotoqxonalarini ko'radi
+        return Dormitory.objects.filter(admin=user)

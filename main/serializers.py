@@ -145,7 +145,6 @@ class RuleSerializer(serializers.ModelSerializer):
         model = Rule
         fields = '__all__'
 
-
 class FloorSerializer(serializers.ModelSerializer):
     available_rooms = serializers.IntegerField(read_only=True)
     partially_occupied_rooms = serializers.IntegerField(read_only=True)
@@ -158,9 +157,15 @@ class FloorSerializer(serializers.ModelSerializer):
                   'partially_occupied_rooms',
                   'fully_occupied_rooms']
 
+class RoomStudentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Student
+        fields = ['id', 'name', 'last_name', 'course', 'group', 'phone']
+
 
 class RoomSerializer(serializers.ModelSerializer):
     floor_name = serializers.CharField(source='floor.name', read_only=True)
+    students = RoomStudentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Room
@@ -274,10 +279,12 @@ class ApplicationAdminUpdateSerializer(serializers.ModelSerializer):
         fields = ['status', 'comment']
 
 class PaymentSerializer(serializers.ModelSerializer):
+    student_info = StudentSerializer(source='student',read_only=True)
 
     class Meta:
         model = Payment
-        fields = ['student','amount', 'paid_date','valid_until','method','status','comment']
+        fields = ['student_info','student','amount', 'paid_date','valid_until','method','status','comment']
+
 
 
 class TaskSerializer(serializers.ModelSerializer):
