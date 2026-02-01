@@ -620,13 +620,13 @@ Authorization: Bearer [admin_token]
 - `rejected` - Rad etilgan arizalar
 
 
-## 21. Foydalanuvchi - Profilni Ko'rish
+## 21. Foydalanuvchi - Profilni Ko'rish (To'lovlar Bilan)
 
 ```bash
 GET /api/me/
-Authorization: Bearer [token]
+Authorization: Bearer [student_token]
 
-# Response:
+# Response (Talaba uchun):
 {
   "id": 1,
   "username": "alisher_student",
@@ -639,7 +639,57 @@ Authorization: Bearer [token]
   "phone": "+998901234567",
   "birth_date": "2000-01-01",
   "address": "Toshkent, Chilonzor",
-  "telegram": "@alisher_student"
+  "telegram": "@alisher_student",
+  "student_info": {
+    "id": 1,
+    "name": "Alisher Navoiy",
+    "course": "1-kurs",
+    "faculty": "Informatika",
+    "group": "IT-101",
+    "dormitory_name": "Yotoqxona #1",
+    "room_name": "101",
+    "is_active": true,
+    "placement_status": "Joylashdi"
+  },
+  "recent_payments": [
+    {
+      "id": 1,
+      "amount": 500000,
+      "paid_date": "2024-01-01T10:00:00Z",
+      "valid_until": "2024-02-01",
+      "method": "Card",
+      "status": "APPROVED",
+      "comment": "Yanvar oyi uchun to'lov"
+    },
+    {
+      "id": 2,
+      "amount": 500000,
+      "paid_date": "2023-12-01T10:00:00Z",
+      "valid_until": "2024-01-01",
+      "method": "Cash",
+      "status": "APPROVED",
+      "comment": "Dekabr oyi uchun to'lov"
+    }
+  ],
+  "payment_summary": {
+    "total_payments": 5,
+    "approved_payments": 4,
+    "total_amount": 2000000,
+    "last_payment_date": "2024-01-01T10:00:00Z",
+    "is_debtor": false
+  }
+}
+
+# Response (Admin uchun):
+{
+  "id": 2,
+  "username": "admin_user",
+  "email": "admin@example.com",
+  "role": "admin",
+  "student_info": null,
+  "recent_payments": [],
+  "payment_summary": null,
+  ...
 }
 ```
 
@@ -862,3 +912,104 @@ Content-Type: application/json
 - ❌ admin - Faqat superuser o'zgartiradi
 - ❌ university - Faqat superuser o'zgartiradi
 - ❌ is_active - Faqat superuser o'zgartiradi
+
+## 28. Talaba - O'z Arizasini Ko'rish
+
+```bash
+GET /api/student/application/
+Authorization: Bearer [student_token]
+
+# Response:
+{
+  "id": 1,
+  "name": "Alisher",
+  "last_name": "Navoiy",
+  "middle_name": "Abdullayevich",
+  "passport": "AB1234567",
+  "phone": "+998901234567",
+  "course": "1-kurs",
+  "group": "IT-101",
+  "faculty": "Informatika",
+  "direction": "Dasturiy injiniring",
+  "dormitory": 1,
+  "dormitory_name": "Yotoqxona #1",
+  "province": 1,
+  "province_name": "Toshkent",
+  "district": 1,
+  "district_name": "Chilonzor",
+  "status": "Approved",
+  "admin_comment": "Barcha hujjatlar to'liq. Tasdiqlandi.",
+  "created_at": "2024-01-01T10:00:00Z",
+  "user_image": "http://localhost:8000/media/application_image/alisher.jpg",
+  "passport_image_first": "http://localhost:8000/media/passport_image/passport1.jpg",
+  "passport_image_second": "http://localhost:8000/media/passport_image/passport2.jpg",
+  "document": "http://localhost:8000/media/application_documents/document.pdf"
+}
+```
+
+## 29. Talaba - Dashboard (Ariza Ma'lumoti Bilan)
+
+```bash
+GET /api/student/dashboard/
+Authorization: Bearer [student_token]
+
+# Response:
+{
+  "id": 1,
+  "name": "Alisher",
+  "last_name": "Navoiy",
+  "is_active": true,
+  "placement_status": "Joylashdi",
+  "application_info": {
+    "id": 1,
+    "status": "Approved",
+    "created_at": "2024-01-01T10:00:00Z",
+    "admin_comment": "Barcha hujjatlar to'liq. Tasdiqlandi.",
+    "dormitory_name": "Yotoqxona #1"
+  },
+  "dormitory_info": {
+    "id": 1,
+    "name": "Yotoqxona #1",
+    "address": "Toshkent, Chilonzor",
+    "month_price": 500000,
+    "year_price": 5000000
+  },
+  "floor_info": {
+    "id": 1,
+    "name": "1-qavat",
+    "gender": "male"
+  },
+  "room_info": {
+    "id": 101,
+    "name": "101",
+    "capacity": 4,
+    "current_occupancy": 3,
+    "status": "PARTIALLY_OCCUPIED"
+  },
+  "roommates": [...],
+  "recent_payments": [...]
+}
+```
+
+### Ariza Statuslari
+
+- **Pending** - Kutilmoqda (admin hali ko'rmagan)
+- **Approved** - Tasdiqlangan (Student yaratilgan)
+- **Rejected** - Rad etilgan (admin_comment da sabab)
+- **Cancelled** - Bekor qilingan
+
+### 404 Xatolari
+
+**Ariza topilmasa:**
+```json
+{
+  "detail": "Sizning arizangiz topilmadi"
+}
+```
+
+**Student bo'lmasa:**
+```json
+{
+  "error": "Siz hali talaba sifatida ro'yxatdan o'tmagansiz"
+}
+```

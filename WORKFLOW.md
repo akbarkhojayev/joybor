@@ -533,11 +533,11 @@ Admin o'z yotoqxonasi bo'yicha to'liq statistikani bitta endpoint orqali oladi.
 
 Har qanday foydalanuvchi o'z profilini tahrirlashi mumkin.
 
-### Profilni Ko'rish
+### Profilni Ko'rish (To'lovlar Bilan)
 
 **Endpoint:** `GET /api/me/`
 
-**Response:**
+**Response (Talaba uchun):**
 ```json
 {
   "id": 1,
@@ -546,12 +546,33 @@ Har qanday foydalanuvchi o'z profilini tahrirlashi mumkin.
   "first_name": "Alisher",
   "last_name": "Navoiy",
   "role": "student",
-  "image": "http://localhost:8000/media/user_profiles/alisher.jpg",
-  "bio": "Informatika fakulteti talabasi",
-  "phone": "+998901234567",
-  "birth_date": "2000-01-01",
-  "address": "Toshkent, Chilonzor",
-  "telegram": "@alisher_student"
+  "student_info": {
+    "id": 1,
+    "name": "Alisher Navoiy",
+    "course": "1-kurs",
+    "faculty": "Informatika",
+    "group": "IT-101",
+    "dormitory_name": "Yotoqxona #1",
+    "room_name": "101",
+    "is_active": true,
+    "placement_status": "Joylashdi"
+  },
+  "recent_payments": [
+    {
+      "id": 1,
+      "amount": 500000,
+      "paid_date": "2024-01-01T10:00:00Z",
+      "method": "Card",
+      "status": "APPROVED"
+    }
+  ],
+  "payment_summary": {
+    "total_payments": 5,
+    "approved_payments": 4,
+    "total_amount": 2000000,
+    "last_payment_date": "2024-01-01T10:00:00Z",
+    "is_debtor": false
+  }
 }
 ```
 
@@ -719,3 +740,107 @@ PATCH method bilan faqat kerakli fieldlarni yangilash:
 **403 Forbidden:**
 - Foydalanuvchi admin emas
 - Boshqa adminning yotoqxonasini tahrirlashga urinish
+
+## 12. Talaba - O'z Arizasini Ko'rish
+
+Talaba o'z yuborgan arizasining holatini va admin izohini ko'rishi mumkin.
+
+### Dashboard da Ariza Ma'lumoti
+
+**Endpoint:** `GET /api/student/dashboard/`
+
+Dashboard javobida `application_info` bo'limi qo'shildi:
+
+```json
+{
+  "application_info": {
+    "id": 1,
+    "status": "Approved",
+    "created_at": "2024-01-01T10:00:00Z",
+    "admin_comment": "Barcha hujjatlar to'liq. Tasdiqlandi.",
+    "dormitory_name": "Yotoqxona #1"
+  }
+}
+```
+
+### To'liq Ariza Ma'lumotlari
+
+**Endpoint:** `GET /api/student/application/`
+
+**Response:**
+```json
+{
+  "id": 1,
+  "name": "Alisher",
+  "last_name": "Navoiy",
+  "passport": "AB1234567",
+  "status": "Approved",
+  "admin_comment": "Barcha hujjatlar to'liq. Tasdiqlandi.",
+  "created_at": "2024-01-01T10:00:00Z",
+  "dormitory_name": "Yotoqxona #1",
+  "user_image": "http://localhost:8000/media/application_image/alisher.jpg",
+  "passport_image_first": "...",
+  "passport_image_second": "...",
+  "document": "..."
+}
+```
+
+### Ariza Holatlari
+
+1. **Pending** - Ariza yuborilgan, admin hali ko'rmagan
+2. **Approved** - Ariza tasdiqlangan, Student yaratilgan
+3. **Rejected** - Ariza rad etilgan, admin_comment da sabab
+4. **Cancelled** - Ariza bekor qilingan
+
+### Xatoliklar
+
+**Ariza yo'q:**
+- 404 - "Sizning arizangiz topilmadi"
+- Bu holat: Talaba hali ariza yubormagan
+
+**Student yo'q:**
+- 404 - "Siz hali talaba sifatida ro'yxatdan o'tmagansiz"
+- Bu holat: Ariza hali tasdiqlanmagan
+
+### Frontend uchun Maslahatlar
+
+1. **Status Badge** - Har bir status uchun rang
+   - Pending: sariq
+   - Approved: yashil
+   - Rejected: qizil
+   - Cancelled: kulrang
+
+2. **Admin Comment** - Agar mavjud bo'lsa ko'rsatish
+3. **Timeline** - Ariza yuborilgan vaqt
+4. **Documents** - Yuklangan hujjatlarni ko'rsatish
+### Pr
+ofildagi To'lovlar Ma'lumoti
+
+**Talaba uchun qo'shimcha fieldlar:**
+
+**1. student_info** - Talaba ma'lumotlari:
+- name, course, faculty, group
+- dormitory_name, room_name
+- is_active, placement_status
+
+**2. recent_payments** - Oxirgi 5 ta to'lov:
+- amount, paid_date, method, status
+- valid_until, comment
+
+**3. payment_summary** - To'lovlar xulosasi:
+- total_payments - Jami to'lovlar soni
+- approved_payments - Tasdiqlangan to'lovlar
+- total_amount - Jami to'lov summasi
+- last_payment_date - Oxirgi to'lov sanasi
+- is_debtor - Qarzdormi (30+ kun to'lov qilmagan)
+
+**Admin/Boshqa rollar uchun:**
+- student_info: null
+- recent_payments: []
+- payment_summary: null
+
+### Qarzdorlik Hisobi
+
+Agar talaba 30 kundan ko'p vaqt to'lov qilmagan bo'lsa:
+- is_debtor: true
+- Frontend da qizil rang bilan ko'rsatish mumkin

@@ -71,6 +71,7 @@ urlpatterns = [
     path('student/roommates/', StudentRoommatesView.as_view(), name='student-roommates'),
     path('student/attendance/', StudentAttendanceView.as_view(), name='student-attendance'),
     path('student/collections/', StudentCollectionsView.as_view(), name='student-collections'),
+    path('student/application/', StudentApplicationView.as_view(), name='student-application'),
     # Notifications - Bitta unified endpoint
     path('notifications/', NotificationsView.as_view(), name='notifications'),
     path('notifications/mark-read/', MarkNotificationAsReadView.as_view(), name='mark-notification-read'),

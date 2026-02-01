@@ -75,6 +75,8 @@ class Dormitory(models.Model):
     rating = models.IntegerField(blank=True, null=True, validators=[MinValueValidator(0), MaxValueValidator(5)])
     amenities = models.ManyToManyField(Amenity, blank=True)
     is_active = models.BooleanField(default=True)
+    distance = models.FloatField(blank=True, null=True)
+
 
 
     def __str__(self):

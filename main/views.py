@@ -9,7 +9,8 @@ from django.db.models import Q
 from .models import *
 from .serializers import *
 from .permisssions import *
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.exceptions import PermissionDenied
 
 
 # ==================== AUTH VIEWS ====================
@@ -179,20 +180,51 @@ class DormitoryDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = DormitorySerializer
     permission_classes = [IsOwnerOrIsAdmin]
 
-
-# ==================== DORMITORY IMAGE VIEWS ====================
 class DormitoryImageListView(generics.ListCreateAPIView):
-    queryset = DormitoryImage.objects.all()
     serializer_class = DormitoryImageSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['dormitory']
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # Superuser hammasini ko‘ra oladi
+        if user.is_superuser:
+            return DormitoryImage.objects.all()
+
+        # Admin faqat o‘z dormitory rasmlarini
+        return DormitoryImage.objects.filter(
+            dormitory__admin=user
+        )
+
+    def perform_create(self, serializer):
+        user = self.request.user
+
+        # user admin bo‘lgan dormitoryni topamiz
+        dormitory = Dormitory.objects.filter(admin=user).first()
+        if not dormitory:
+            raise PermissionDenied(
+                "Sizga tegishli dormitory topilmadi"
+            )
+
+        serializer.save(dormitory=dormitory)
 
 
 class DormitoryImageDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = DormitoryImage.objects.all()
     serializer_class = DormitoryImageSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.is_superuser:
+            return DormitoryImage.objects.all()
+
+        return DormitoryImage.objects.filter(
+            dormitory__admin=user
+        )
+
 
 
 # ==================== RULE VIEWS ====================
@@ -203,20 +235,61 @@ class RuleListView(generics.ListCreateAPIView):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['dormitory']
 
+    def get_queryset(self):
+        # Foydalanuvchining admin bo'lgan dormitory qoidalarini ko'rsatadi
+        if self.request.user.role == 'admin':
+            try:
+                dormitory = Dormitory.objects.get(admin=self.request.user)
+                return Rule.objects.filter(dormitory=dormitory)
+            except Dormitory.DoesNotExist:
+                return Rule.objects.none()
+        else:
+            # Student yoki boshqa role foydalanuvchilar uchun kerak bo'lsa
+            return Rule.objects.none()
+
+    def perform_create(self, serializer):
+        # Foydalanuvchi admin bo'lsa, dormitory ni avtomatik belgilaydi
+        if self.request.user.role == 'admin':
+            dormitory = Dormitory.objects.get(admin=self.request.user)
+            serializer.save(dormitory=dormitory)
+
+
 
 class RuleDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Rule.objects.all()
     serializer_class = RuleSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
+    
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Rule.objects.none()
+        
+        user = self.request.user
+        if user.is_superuser:
+            return Rule.objects.all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            # Admin faqat o'z yotoqxonasining qoidalarini ko'radi
+            return Rule.objects.filter(dormitory__admin=user)
+        return Rule.objects.none()
 
 
 # ==================== FLOOR VIEWS ====================
 class FloorListView(generics.ListCreateAPIView):
-    queryset = Floor.objects.all()
     serializer_class = FloorSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['gender']
+    
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Floor.objects.none()
+        
+        user = self.request.user
+        if user.is_superuser:
+            return Floor.objects.all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            # Admin faqat o'z yotoqxonasining qavatlarini ko'radi
+            return Floor.objects.filter(dormitory__admin=user)
+        return Floor.objects.none()
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -232,24 +305,57 @@ class FloorListView(generics.ListCreateAPIView):
         serializer.save(dormitory=dormitory)
 
 class FloorDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Floor.objects.all()
     serializer_class = FloorSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
+    
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Floor.objects.none()
+        
+        user = self.request.user
+        if user.is_superuser:
+            return Floor.objects.all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            # Admin faqat o'z yotoqxonasining qavatlarini ko'radi
+            return Floor.objects.filter(dormitory__admin=user)
+        return Floor.objects.none()
 
 
 # ==================== ROOM VIEWS ====================
 class RoomListView(generics.ListCreateAPIView):
-    queryset = Room.objects.all()
     serializer_class = RoomSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['floor', 'status',]
+    filterset_fields = ['floor', 'status', 'gender']
+    
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Room.objects.none()
+        
+        user = self.request.user
+        if user.is_superuser:
+            return Room.objects.all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            # Admin faqat o'z yotoqxonasining xonalarini ko'radi
+            return Room.objects.filter(floor__dormitory__admin=user)
+        return Room.objects.none()
 
 
 class RoomDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Room.objects.all()
     serializer_class = RoomSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
+    
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Room.objects.none()
+        
+        user = self.request.user
+        if user.is_superuser:
+            return Room.objects.all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            # Admin faqat o'z yotoqxonasining xonalarini ko'radi
+            return Room.objects.filter(floor__dormitory__admin=user)
+        return Room.objects.none()
 
 
 # ==================== STUDENT VIEWS ====================
@@ -521,17 +627,39 @@ class ApartmentImageDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 # ==================== FLOOR LEADER VIEWS ====================
 class FloorLeaderListView(generics.ListCreateAPIView):
-    queryset = FloorLeader.objects.all()
     serializer_class = FloorLeaderSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['floor']
+    
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return FloorLeader.objects.none()
+        
+        user = self.request.user
+        if user.is_superuser:
+            return FloorLeader.objects.all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            # Admin faqat o'z yotoqxonasining qavat sardorlarini ko'radi
+            return FloorLeader.objects.filter(floor__dormitory__admin=user)
+        return FloorLeader.objects.none()
 
 
 class FloorLeaderDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = FloorLeader.objects.all()
     serializer_class = FloorLeaderSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
+    
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return FloorLeader.objects.none()
+        
+        user = self.request.user
+        if user.is_superuser:
+            return FloorLeader.objects.all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            # Admin faqat o'z yotoqxonasining qavat sardorlarini ko'radi
+            return FloorLeader.objects.filter(floor__dormitory__admin=user)
+        return FloorLeader.objects.none()
 
 
 # ==================== ATTENDANCE SESSION VIEWS ====================
@@ -1171,6 +1299,7 @@ class MyDormitoryView(generics.RetrieveUpdateAPIView):
     """Admin o'z yotoqxonasini ko'rish va tahrirlash"""
     serializer_class = DormitorySerializer
     permission_classes = [IsDormitoryAdmin]
+    parser_classes = [MultiPartParser, FormParser]
     
     def get_object(self):
         if getattr(self, 'swagger_fake_view', False):
@@ -1212,3 +1341,15 @@ class MyDormitoriesListView(generics.ListAPIView):
         
         # Admin o'z yotoqxonalarini ko'radi
         return Dormitory.objects.filter(admin=user)
+
+
+class StudentApplicationView(generics.RetrieveAPIView):
+    """Talabaning o'z arizasini ko'rish"""
+    serializer_class = ApplicationSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_object(self):
+        try:
+            return Application.objects.get(user=self.request.user)
+        except Application.DoesNotExist:
+            raise NotFound("Sizning arizangiz topilmadi")

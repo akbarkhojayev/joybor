@@ -53,6 +53,11 @@ class UserMeSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
     last_name = serializers.CharField(source='user.last_name', required=False, allow_blank=True)
     role = serializers.CharField(source='user.role', read_only=True)
+    
+    # Talaba uchun qo'shimcha ma'lumotlar
+    student_info = serializers.SerializerMethodField()
+    recent_payments = serializers.SerializerMethodField()
+    payment_summary = serializers.SerializerMethodField()
 
     class Meta:
         model = UserProfile
@@ -69,7 +74,75 @@ class UserMeSerializer(serializers.ModelSerializer):
             'birth_date',
             'address',
             'telegram',
+            'student_info',
+            'recent_payments',
+            'payment_summary',
         ]
+    
+    def get_student_info(self, obj):
+        """Agar foydalanuvchi talaba bo'lsa, talaba ma'lumotlari"""
+        try:
+            student = Student.objects.get(user=obj.user)
+            return {
+                'id': student.id,
+                'name': f"{student.name} {student.last_name}",
+                'course': student.course,
+                'faculty': student.faculty,
+                'group': student.group,
+                'dormitory_name': student.dormitory.name if student.dormitory else None,
+                'room_name': student.room.name if student.room else None,
+                'is_active': student.is_active,
+                'placement_status': student.placement_status,
+            }
+        except Student.DoesNotExist:
+            return None
+    
+    def get_recent_payments(self, obj):
+        """Oxirgi 5 ta to'lov"""
+        try:
+            student = Student.objects.get(user=obj.user)
+            payments = Payment.objects.filter(student=student).order_by('-paid_date')[:5]
+            return [{
+                'id': payment.id,
+                'amount': payment.amount,
+                'paid_date': payment.paid_date,
+                'valid_until': payment.valid_until,
+                'method': payment.method,
+                'status': payment.status,
+                'comment': payment.comment,
+            } for payment in payments]
+        except Student.DoesNotExist:
+            return []
+    
+    def get_payment_summary(self, obj):
+        """To'lovlar xulosasi"""
+        try:
+            student = Student.objects.get(user=obj.user)
+            payments = Payment.objects.filter(student=student)
+            
+            total_payments = payments.count()
+            approved_payments = payments.filter(status='APPROVED').count()
+            total_amount = sum(p.amount for p in payments.filter(status='APPROVED'))
+            
+            # Oxirgi to'lov
+            last_payment = payments.filter(status='APPROVED').order_by('-paid_date').first()
+            last_payment_date = last_payment.paid_date if last_payment else None
+            
+            # Qarzdorlik (30 kundan ko'p to'lov qilmagan)
+            from django.utils import timezone
+            from datetime import timedelta
+            thirty_days_ago = timezone.now() - timedelta(days=30)
+            is_debtor = not payments.filter(status='APPROVED', paid_date__gte=thirty_days_ago).exists()
+            
+            return {
+                'total_payments': total_payments,
+                'approved_payments': approved_payments,
+                'total_amount': total_amount,
+                'last_payment_date': last_payment_date,
+                'is_debtor': is_debtor,
+            }
+        except Student.DoesNotExist:
+            return None
     
     def update(self, instance, validated_data):
         # User ma'lumotlarini yangilash
@@ -139,8 +212,13 @@ class DormitoryImageSerializer(serializers.ModelSerializer):
     class Meta:
         model = DormitoryImage
         fields = '__all__'
+        extra_kwargs = {
+            'dormitory': {'read_only': True}
+        }
+
 
 class RuleSerializer(serializers.ModelSerializer):
+    dormitory = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
         model = Rule
         fields = '__all__'
@@ -213,6 +291,7 @@ class StudentDashboardSerializer(serializers.ModelSerializer):
     room_info = serializers.SerializerMethodField()
     roommates = serializers.SerializerMethodField()
     recent_payments = serializers.SerializerMethodField()
+    application_info = serializers.SerializerMethodField()
     province_name = serializers.CharField(source='province.name', read_only=True)
     district_name = serializers.CharField(source='district.name', read_only=True)
     
@@ -260,6 +339,22 @@ class StudentDashboardSerializer(serializers.ModelSerializer):
     def get_recent_payments(self, obj):
         payments = Payment.objects.filter(student=obj).order_by('-paid_date')[:5]
         return PaymentSerializer(payments, many=True).data
+    
+    def get_application_info(self, obj):
+        """Talabaning yuborgan arizasi ma'lumotlari"""
+        if obj.user:
+            try:
+                application = Application.objects.get(user=obj.user)
+                return {
+                    'id': application.id,
+                    'status': application.status,
+                    'created_at': application.created_at,
+                    'admin_comment': application.admin_comment,
+                    'dormitory_name': application.dormitory.name if application.dormitory else None,
+                }
+            except Application.DoesNotExist:
+                return None
+        return None
 
 
 class ApplicationSerializer(serializers.ModelSerializer):

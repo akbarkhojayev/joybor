@@ -96,11 +96,12 @@ python manage.py runserver
 - `PUT/PATCH /api/applications/{id}/reject/` - Arizani rad etish (admin_comment bilan)
 
 ### Talaba Dashboard (Student endpoints)
-- `GET /api/student/dashboard/` - Talabaning to'liq ma'lumotlari (xona, xonadoshlar, to'lovlar)
+- `GET /api/student/dashboard/` - Talabaning to'liq ma'lumotlari (xona, xonadoshlar, to'lovlar, ariza)
 - `GET /api/student/payments/` - Talabaning to'lovlar tarixi
 - `GET /api/student/roommates/` - Xonadoshlar ro'yxati
 - `GET /api/student/attendance/` - Davomat ma'lumotlari
 - `GET /api/student/collections/` - Yig'imlar ma'lumotlari
+- `GET /api/student/application/` - O'z arizasi ma'lumotlari
 
 ### Bildirishnomalar (Unified Notifications)
 - `GET /api/notifications/` - Barcha bildirishnomalar (bitta endpoint)
