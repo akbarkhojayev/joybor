@@ -77,8 +77,6 @@ class Dormitory(models.Model):
     is_active = models.BooleanField(default=True)
     distance = models.FloatField(blank=True, null=True)
 
-
-
     def __str__(self):
         return self.name
 

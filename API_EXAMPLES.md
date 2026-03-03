@@ -1013,3 +1013,81 @@ Authorization: Bearer [student_token]
   "error": "Siz hali talaba sifatida ro'yxatdan o'tmagansiz"
 }
 ```
+## 30
+. Umumiy Statistika
+
+```bash
+GET /api/stats/
+# Token kerak emas - hamma ko'ra oladi
+
+# Response:
+{
+  "dormitories": {
+    "total": 25,
+    "active": 23
+  },
+  "students": {
+    "total": 1500,
+    "active": 1350,
+    "male": 900,
+    "female": 600
+  },
+  "universities": {
+    "total": 15
+  },
+  "applications": {
+    "total": 2000,
+    "pending": 50,
+    "approved": 1500
+  },
+  "rooms": {
+    "total": 500,
+    "capacity": 2000,
+    "occupied": 1350,
+    "free": 650,
+    "occupancy_rate": 67.5
+  },
+  "provinces": {
+    "total": 14
+  }
+}
+```
+
+### Statistika Tushuntirishlari
+
+**Yotoqxonalar (dormitories):**
+- `total` - Jami yotoqxonalar soni
+- `active` - Faol yotoqxonalar soni
+
+**Talabalar (students):**
+- `total` - Jami talabalar soni
+- `active` - Xonaga joylashtirilgan talabalar
+- `male` - Yigitlar soni
+- `female` - Qizlar soni
+
+**Universitetlar (universities):**
+- `total` - Jami universitetlar soni
+
+**Arizalar (applications):**
+- `total` - Jami arizalar soni
+- `pending` - Kutilayotgan arizalar
+- `approved` - Tasdiqlangan arizalar
+
+**Xonalar (rooms):**
+- `total` - Jami xonalar soni
+- `capacity` - Jami sig'im
+- `occupied` - Band joylar
+- `free` - Bo'sh joylar
+- `occupancy_rate` - Band joylar foizi
+
+**Viloyatlar (provinces):**
+- `total` - Jami viloyatlar soni
+
+### Foydalanish
+
+Bu endpoint:
+- ✅ Token talab qilmaydi (AllowAny)
+- ✅ Tez ishlaydi
+- ✅ Landing page uchun mos
+- ✅ Dashboard kartlari uchun ideal
+- ✅ Real-time ma'lumotlar

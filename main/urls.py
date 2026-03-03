@@ -6,6 +6,9 @@ urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
     path('me/', CurrentUserView.as_view(), name='current-user'),
     
+    # General Stats
+    path('stats/', GeneralStatsView.as_view(), name='general-stats'),
+    
     # Admin Dashboard
     path('admin/dashboard/', AdminDashboardStatsView.as_view(), name='admin-dashboard'),
     path('admin/my-dormitories/', MyDormitoriesListView.as_view(), name='my-dormitories-list'),

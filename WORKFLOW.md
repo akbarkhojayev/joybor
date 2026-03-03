@@ -843,4 +843,83 @@ ofildagi To'lovlar Ma'lumoti
 
 Agar talaba 30 kundan ko'p vaqt to'lov qilmagan bo'lsa:
 - is_debtor: true
-- Frontend da qizil rang bilan ko'rsatish mumkin
+- Frontend da qizil rang bilan ko'rsatish mumkin## 13. 
+Umumiy Statistika
+
+Tizimning umumiy statistikasini ko'rish uchun ochiq endpoint.
+
+### Statistika Ma'lumotlari
+
+**Endpoint:** `GET /api/stats/`
+
+**Xususiyatlari:**
+- Token talab qilmaydi
+- Hamma foydalanuvchi ko'ra oladi
+- Tez ishlaydi
+- Real-time ma'lumotlar
+
+**Response:**
+```json
+{
+  "dormitories": {
+    "total": 25,
+    "active": 23
+  },
+  "students": {
+    "total": 1500,
+    "active": 1350,
+    "male": 900,
+    "female": 600
+  },
+  "universities": {
+    "total": 15
+  },
+  "applications": {
+    "total": 2000,
+    "pending": 50,
+    "approved": 1500
+  },
+  "rooms": {
+    "total": 500,
+    "capacity": 2000,
+    "occupied": 1350,
+    "free": 650,
+    "occupancy_rate": 67.5
+  },
+  "provinces": {
+    "total": 14
+  }
+}
+```
+
+### Frontend Uchun Foydalanish
+
+**1. Landing Page**
+- Asosiy sahifada statistika ko'rsatish
+- "1500+ talaba", "25 yotoqxona" kabi
+
+**2. Dashboard Cards**
+- Har bir bo'lim uchun alohida card
+- Progress bar (band joylar foizi)
+
+**3. Charts**
+- Pie chart: Yigitlar/Qizlar nisbati
+- Bar chart: Viloyatlar bo'yicha taqsimot
+- Donut chart: Band/Bo'sh joylar
+
+**4. Real-time Updates**
+- Har 30 sekundda yangilanish
+- WebSocket orqali real-time
+
+### Misol Foydalanish
+
+```javascript
+// Landing page uchun
+fetch('/api/stats/')
+  .then(res => res.json())
+  .then(data => {
+    document.getElementById('students-count').textContent = data.students.total;
+    document.getElementById('dormitories-count').textContent = data.dormitories.total;
+    document.getElementById('universities-count').textContent = data.universities.total;
+  });
+```

@@ -1353,3 +1353,79 @@ class StudentApplicationView(generics.RetrieveAPIView):
             return Application.objects.get(user=self.request.user)
         except Application.DoesNotExist:
             raise NotFound("Sizning arizangiz topilmadi")
+
+
+class GeneralStatsView(APIView):
+    """Umumiy statistika - yotoqxonalar, foydalanuvchilar, universitetlar soni"""
+    permission_classes = [AllowAny]  # Hamma ko'ra oladi
+
+    def get(self, request):
+        # Yotoqxonalar statistikasi
+        total_dormitories = Dormitory.objects.filter(is_active=True).count()
+        active_dormitories = Dormitory.objects.filter(is_active=True).count()
+
+        # Foydalanuvchilar statistikasi
+        total_users = User.objects.count()
+        active_users = User.objects.filter(is_active=True).count()
+        students_count = User.objects.filter(role='student').count()
+        admins_count = User.objects.filter(role='admin').count()
+        ijarachi_count = User.objects.filter(role='ijarachi').count()
+        sardor_count = User.objects.filter(role='sardor').count()
+
+        # Universitetlar statistikasi
+        total_universities = University.objects.count()
+
+        # Arizalar statistikasi
+        total_applications = Application.objects.count()
+        pending_applications = Application.objects.filter(status='Pending').count()
+        approved_applications = Application.objects.filter(status='Approved').count()
+        rejected_applications = Application.objects.filter(status='Rejected').count()
+
+        # Xonalar statistikasi
+        total_rooms = Room.objects.count()
+        total_capacity = sum(room.capacity or 0 for room in Room.objects.all())
+        total_occupied = sum(room.current_occupancy for room in Room.objects.all())
+        total_free = total_capacity - total_occupied
+
+        # Viloyatlar statistikasi
+        total_provinces = Province.objects.count()
+
+        # Kvartiralar statistikasi
+        total_apartments = Apartment.objects.filter(is_active=True).count()
+
+        return Response({
+            "dormitories": {
+                "total": total_dormitories,
+                "active": active_dormitories
+            },
+            "users": {
+                "total": total_users,
+                "active": active_users,
+                "students": students_count,
+                "admins": admins_count,
+                "ijarachi": ijarachi_count,
+                "sardor": sardor_count
+            },
+            "universities": {
+                "total": total_universities
+            },
+            "applications": {
+                "total": total_applications,
+                "pending": pending_applications,
+                "approved": approved_applications,
+                "rejected": rejected_applications
+            },
+            "rooms": {
+                "total": total_rooms,
+                "capacity": total_capacity,
+                "occupied": total_occupied,
+                "free": total_free,
+                "occupancy_rate": round((total_occupied / total_capacity * 100) if total_capacity > 0 else 0, 1)
+            },
+            "provinces": {
+                "total": total_provinces
+            },
+            "apartments": {
+                "total": total_apartments
+            }
+        }, status=status.HTTP_200_OK)

@@ -58,6 +58,9 @@ python manage.py runserver
 - `GET /api/me/` - Joriy foydalanuvchi ma'lumotlari
 - `PUT/PATCH /api/me/` - Profilni tahrirlash
 
+### Umumiy Statistika
+- `GET /api/stats/` - Umumiy statistika (yotoqxonalar, foydalanuvchilar, universitetlar soni)
+
 ### Admin Dashboard
 - `GET /api/admin/dashboard/` - To'liq statistika (talabalar, xonalar, to'lovlar, arizalar)
 - `GET /api/admin/my-dormitories/` - O'z yotoqxonalari ro'yxati
