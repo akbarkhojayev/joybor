@@ -32,19 +32,92 @@ class UserSerializer(serializers.ModelSerializer):
 
 class UserProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
+    student_info = serializers.SerializerMethodField()
+    payments = serializers.SerializerMethodField()
+    payment_summary = serializers.SerializerMethodField()
 
     class Meta:
         model = UserProfile
         fields = [
             'id',
-            'user',          # <-- MUHIM!
+            'user',
             'image',
             'bio',
             'phone',
             'birth_date',
             'address',
             'telegram',
+            'student_info',
+            'payments',
+            'payment_summary',
         ]
+    
+    def get_student_info(self, obj):
+        """Agar foydalanuvchi talaba bo'lsa, talaba ma'lumotlari"""
+        try:
+            student = Student.objects.get(user=obj.user)
+            return {
+                'id': student.id,
+                'name': f"{student.name} {student.last_name}",
+                'course': student.course,
+                'faculty': student.faculty,
+                'group': student.group,
+                'dormitory_name': student.dormitory.name if student.dormitory else None,
+                'room_name': student.room.name if student.room else None,
+                'is_active': student.is_active,
+                'placement_status': student.placement_status,
+            }
+        except Student.DoesNotExist:
+            return None
+    
+    def get_payments(self, obj):
+        """Agar talaba bo'lsa, oxirgi 10 ta to'lov"""
+        try:
+            student = Student.objects.get(user=obj.user)
+            payments = Payment.objects.filter(student=student).order_by('-paid_date')[:10]
+            return [{
+                'id': payment.id,
+                'amount': payment.amount,
+                'paid_date': payment.paid_date,
+                'valid_until': payment.valid_until,
+                'method': payment.method,
+                'status': payment.status,
+                'comment': payment.comment,
+            } for payment in payments]
+        except Student.DoesNotExist:
+            return []
+    
+    def get_payment_summary(self, obj):
+        """To'lovlar xulosasi"""
+        try:
+            student = Student.objects.get(user=obj.user)
+            payments = Payment.objects.filter(student=student)
+            
+            total_payments = payments.count()
+            approved_payments = payments.filter(status='APPROVED').count()
+            total_amount = sum(p.amount for p in payments.filter(status='APPROVED'))
+            
+            # Oxirgi to'lov
+            last_payment = payments.filter(status='APPROVED').order_by('-paid_date').first()
+            last_payment_date = last_payment.paid_date if last_payment else None
+            last_payment_amount = last_payment.amount if last_payment else 0
+            
+            # Qarzdorlik (30 kundan ko'p to'lov qilmagan)
+            from django.utils import timezone
+            from datetime import timedelta
+            thirty_days_ago = timezone.now() - timedelta(days=30)
+            is_debtor = not payments.filter(status='APPROVED', paid_date__gte=thirty_days_ago).exists()
+            
+            return {
+                'total_payments': total_payments,
+                'approved_payments': approved_payments,
+                'total_amount': total_amount,
+                'last_payment_date': last_payment_date,
+                'last_payment_amount': last_payment_amount,
+                'is_debtor': is_debtor,
+            }
+        except Student.DoesNotExist:
+            return None
 
 class UserMeSerializer(serializers.ModelSerializer):
     """Joriy foydalanuvchi profili - ko'rish va tahrirlash"""
@@ -218,10 +291,10 @@ class DormitoryImageSerializer(serializers.ModelSerializer):
 
 
 class RuleSerializer(serializers.ModelSerializer):
-    dormitory = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
         model = Rule
         fields = '__all__'
+        read_only_fields = ['dormitory']
 
 class FloorSerializer(serializers.ModelSerializer):
     available_rooms = serializers.IntegerField(read_only=True)
@@ -257,10 +330,71 @@ class DormitorySerializer(serializers.ModelSerializer):
     admin_name = serializers.CharField(source='admin.username', read_only=True)
     images = DormitoryImageSerializer(many=True, read_only=True)
     amenities_list = AmenitySerializer(source='amenities', many=True, read_only=True)
+    rules = RuleSerializer(source='rule_set', many=True, read_only=True)
+    room_statistics = serializers.SerializerMethodField()
     
     class Meta:
         model = Dormitory
         fields = '__all__'
+    
+    def get_room_statistics(self, obj):
+        """Yotoqxona xonalari va bo'sh joylar statistikasi"""
+        from django.db.models import Sum
+        
+        # Yotoqxonaga tegishli barcha xonalar
+        rooms = Room.objects.filter(floor__dormitory=obj)
+        
+        # Umumiy statistika
+        total_rooms = rooms.count()
+        total_capacity = rooms.aggregate(Sum('capacity'))['capacity__sum'] or 0
+        total_occupied = rooms.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
+        total_free = total_capacity - total_occupied
+        
+        # Erkaklar uchun
+        male_rooms = rooms.filter(gender='male')
+        male_capacity = male_rooms.aggregate(Sum('capacity'))['capacity__sum'] or 0
+        male_occupied = male_rooms.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
+        male_free = male_capacity - male_occupied
+        
+        # Ayollar uchun
+        female_rooms = rooms.filter(gender='female')
+        female_capacity = female_rooms.aggregate(Sum('capacity'))['capacity__sum'] or 0
+        female_occupied = female_rooms.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
+        female_free = female_capacity - female_occupied
+        
+        # Status bo'yicha
+        available_rooms = rooms.filter(status='AVAILABLE').count()
+        partially_occupied_rooms = rooms.filter(status='PARTIALLY_OCCUPIED').count()
+        fully_occupied_rooms = rooms.filter(status='FULLY_OCCUPIED').count()
+        
+        return {
+            'total': {
+                'rooms': total_rooms,
+                'capacity': total_capacity,
+                'occupied': total_occupied,
+                'free': total_free,
+                'occupancy_rate': round((total_occupied / total_capacity * 100) if total_capacity > 0 else 0, 1)
+            },
+            'male': {
+                'rooms': male_rooms.count(),
+                'capacity': male_capacity,
+                'occupied': male_occupied,
+                'free': male_free,
+                'occupancy_rate': round((male_occupied / male_capacity * 100) if male_capacity > 0 else 0, 1)
+            },
+            'female': {
+                'rooms': female_rooms.count(),
+                'capacity': female_capacity,
+                'occupied': female_occupied,
+                'free': female_free,
+                'occupancy_rate': round((female_occupied / female_capacity * 100) if female_capacity > 0 else 0, 1)
+            },
+            'by_status': {
+                'available': available_rooms,
+                'partially_occupied': partially_occupied_rooms,
+                'fully_occupied': fully_occupied_rooms
+            }
+        }
 
 
 class StudentSerializer(serializers.ModelSerializer):
@@ -270,10 +404,53 @@ class StudentSerializer(serializers.ModelSerializer):
     floor_name = serializers.CharField(source='floor.name', read_only=True)
     province_name = serializers.CharField(source='province.name', read_only=True)
     district_name = serializers.CharField(source='district.name', read_only=True)
+    payments = serializers.SerializerMethodField()
+    payment_summary = serializers.SerializerMethodField()
     
     class Meta:
         model = Student
         fields = '__all__'
+    
+    def get_payments(self, obj):
+        """Talabaning barcha to'lovlari"""
+        payments = Payment.objects.filter(student=obj).order_by('-paid_date')[:10]
+        return [{
+            'id': payment.id,
+            'amount': payment.amount,
+            'paid_date': payment.paid_date,
+            'valid_until': payment.valid_until,
+            'method': payment.method,
+            'status': payment.status,
+            'comment': payment.comment,
+        } for payment in payments]
+    
+    def get_payment_summary(self, obj):
+        """To'lovlar xulosasi"""
+        payments = Payment.objects.filter(student=obj)
+        
+        total_payments = payments.count()
+        approved_payments = payments.filter(status='APPROVED').count()
+        total_amount = sum(p.amount for p in payments.filter(status='APPROVED'))
+        
+        # Oxirgi to'lov
+        last_payment = payments.filter(status='APPROVED').order_by('-paid_date').first()
+        last_payment_date = last_payment.paid_date if last_payment else None
+        last_payment_amount = last_payment.amount if last_payment else 0
+        
+        # Qarzdorlik (30 kundan ko'p to'lov qilmagan)
+        from django.utils import timezone
+        from datetime import timedelta
+        thirty_days_ago = timezone.now() - timedelta(days=30)
+        is_debtor = not payments.filter(status='APPROVED', paid_date__gte=thirty_days_ago).exists()
+        
+        return {
+            'total_payments': total_payments,
+            'approved_payments': approved_payments,
+            'total_amount': total_amount,
+            'last_payment_date': last_payment_date,
+            'last_payment_amount': last_payment_amount,
+            'is_debtor': is_debtor,
+        }
 
 
 class RoommateSerializer(serializers.ModelSerializer):
@@ -374,11 +551,24 @@ class ApplicationAdminUpdateSerializer(serializers.ModelSerializer):
         fields = ['status', 'comment']
 
 class PaymentSerializer(serializers.ModelSerializer):
-    student_info = StudentSerializer(source='student',read_only=True)
+    student_info = serializers.SerializerMethodField()
+    dormitory_name = serializers.CharField(source='dormitory.name', read_only=True)
 
     class Meta:
         model = Payment
-        fields = ['student_info','student','amount', 'paid_date','valid_until','method','status','comment']
+        fields = ['id', 'student_info', 'student', 'dormitory', 'dormitory_name', 'amount', 'paid_date', 'valid_until', 'method', 'status', 'comment']
+        read_only_fields = ['dormitory', 'paid_date']
+    
+    def get_student_info(self, obj):
+        """Talaba haqida qisqacha ma'lumot"""
+        return {
+            'id': obj.student.id,
+            'name': f"{obj.student.name} {obj.student.last_name}",
+            'course': obj.student.course,
+            'group': obj.student.group,
+            'room_name': obj.student.room.name if obj.student.room else None,
+            'floor_name': obj.student.floor.name if obj.student.floor else None,
+        }
 
 
 
@@ -546,10 +736,11 @@ class AssignRoomSerializer(serializers.Serializer):
                 "room": f"Bu xona {floor.name} qavatida emas"
             })
         
-        # Xonada joy borligini tekshirish
-        if room.current_occupancy >= room.capacity:
+        # Xonada joy borligini tekshirish (real-time hisoblash)
+        current_students = Student.objects.filter(room=room, is_active=True).count()
+        if current_students >= (room.capacity or 0):
             raise serializers.ValidationError({
-                "room": "Bu xonada bo'sh joy yo'q"
+                "room": f"Bu xonada bo'sh joy yo'q. Sig'im: {room.capacity}, Band: {current_students}"
             })
         
         return data
@@ -574,15 +765,8 @@ class AssignRoomSerializer(serializers.Serializer):
                 "error": f"Talaba jinsi ({instance.gender}) va xona jinsi ({room.gender}) mos kelmaydi"
             })
         
-        # Eski xonadan o'chirish (agar mavjud bo'lsa)
-        if instance.room:
-            old_room = instance.room
-            old_room.current_occupancy -= 1
-            if old_room.current_occupancy == 0:
-                old_room.status = 'AVAILABLE'
-            elif old_room.current_occupancy < old_room.capacity:
-                old_room.status = 'PARTIALLY_OCCUPIED'
-            old_room.save()
+        # Eski xonani saqlash
+        old_room = instance.room
         
         # Yangi xonaga joylashtirish
         instance.floor = floor
@@ -591,13 +775,12 @@ class AssignRoomSerializer(serializers.Serializer):
         instance.placement_status = 'Joylashdi'
         instance.save()
         
-        # Xona occupancy ni yangilash
-        room.current_occupancy += 1
-        if room.current_occupancy >= room.capacity:
-            room.status = 'FULLY_OCCUPIED'
-        else:
-            room.status = 'PARTIALLY_OCCUPIED'
-        room.save()
+        # Eski xonani yangilash (agar mavjud bo'lsa)
+        if old_room:
+            old_room.update_occupancy()
+        
+        # Yangi xonani yangilash
+        room.update_occupancy()
         
         # Talabaga bildirishnoma yuborish
         if instance.user:
@@ -630,13 +813,8 @@ class RemoveRoomSerializer(serializers.Serializer):
         instance.placement_status = 'Qabul qilindi'
         instance.save()
         
-        # Xona occupancy ni yangilash
-        old_room.current_occupancy -= 1
-        if old_room.current_occupancy == 0:
-            old_room.status = 'AVAILABLE'
-        elif old_room.current_occupancy < old_room.capacity:
-            old_room.status = 'PARTIALLY_OCCUPIED'
-        old_room.save()
+        # Eski xonani yangilash
+        old_room.update_occupancy()
         
         # Talabaga bildirishnoma
         if instance.user:

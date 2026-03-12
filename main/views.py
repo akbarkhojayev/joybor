@@ -236,22 +236,28 @@ class RuleListView(generics.ListCreateAPIView):
     filterset_fields = ['dormitory']
 
     def get_queryset(self):
-        # Foydalanuvchining admin bo'lgan dormitory qoidalarini ko'rsatadi
-        if self.request.user.role == 'admin':
-            try:
-                dormitory = Dormitory.objects.get(admin=self.request.user)
-                return Rule.objects.filter(dormitory=dormitory)
-            except Dormitory.DoesNotExist:
-                return Rule.objects.none()
-        else:
-            # Student yoki boshqa role foydalanuvchilar uchun kerak bo'lsa
+        if getattr(self, 'swagger_fake_view', False):
             return Rule.objects.none()
+        
+        user = self.request.user
+        if user.is_superuser:
+            return Rule.objects.all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            return Rule.objects.filter(dormitory__admin=user)
+        # Barcha foydalanuvchilar dormitory qoidalarini ko'rishi mumkin
+        return Rule.objects.all()
 
     def perform_create(self, serializer):
-        # Foydalanuvchi admin bo'lsa, dormitory ni avtomatik belgilaydi
-        if self.request.user.role == 'admin':
-            dormitory = Dormitory.objects.get(admin=self.request.user)
-            serializer.save(dormitory=dormitory)
+        user = self.request.user
+        if not hasattr(user, 'role') or user.role != 'admin':
+            raise PermissionDenied("Faqat admin qoida qo'sha oladi")
+        
+        try:
+            dormitory = Dormitory.objects.get(admin=user)
+        except Dormitory.DoesNotExist:
+            raise PermissionDenied("Sizga tegishli yotoqxona topilmadi")
+        
+        serializer.save(dormitory=dormitory)
 
 
 
@@ -361,7 +367,7 @@ class RoomDetailView(generics.RetrieveUpdateDestroyAPIView):
 # ==================== STUDENT VIEWS ====================
 class StudentListView(generics.ListAPIView):
     serializer_class = StudentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # Hamma authenticated user ko'ra oladi
     filter_backends = [filters.SearchFilter, DjangoFilterBackend]
     search_fields = ['name', 'last_name', 'passport', 'phone']
     filterset_fields = ['dormitory', 'floor', 'room', 'course', 'gender', 'status']
@@ -370,14 +376,29 @@ class StudentListView(generics.ListAPIView):
         if getattr(self, 'swagger_fake_view', False):
             return Student.objects.none()
         user = self.request.user
+        
+        # Superuser - barcha talabalarni ko'radi
         if user.is_superuser:
             return Student.objects.all()
+        
+        # Admin - o'z yotoqxonasidagi talabalarni ko'radi
         elif hasattr(user, 'role') and user.role == 'admin':
             return Student.objects.filter(dormitory__admin=user)
+        
+        # Sardor (Floor Leader) - faqat o'z qavatidagi talabalarni ko'radi
         elif hasattr(user, 'role') and user.role == 'sardor':
-            floor_leader = FloorLeader.objects.filter(user=user).first()
-            if floor_leader:
-                return Student.objects.filter(floor=floor_leader.floor)
+            try:
+                floor_leader = FloorLeader.objects.get(user=user)
+                # Faqat o'z qavatidagi talabalar
+                return Student.objects.filter(
+                    floor=floor_leader.floor,
+                    dormitory=floor_leader.floor.dormitory,
+                    is_active=True  # Faqat faol talabalar
+                )
+            except FloorLeader.DoesNotExist:
+                return Student.objects.none()
+        
+        # Student - faqat o'zini ko'radi
         return Student.objects.filter(user=user)
 
 
@@ -389,17 +410,55 @@ class StudentCreateView(generics.CreateAPIView):
 
 class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = StudentSerializer
-    permission_classes = [IsAdminOrDormitoryAdmin]
+    permission_classes = [IsAuthenticated]  # Hamma authenticated user ko'ra oladi
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Student.objects.none()
         user = self.request.user
+        
+        # Superuser - barcha talabalarni ko'radi
         if user.is_superuser:
             return Student.objects.all()
+        
+        # Admin - o'z yotoqxonasidagi talabalarni ko'radi va tahrirlashi mumkin
         elif hasattr(user, 'role') and user.role == 'admin':
             return Student.objects.filter(dormitory__admin=user)
+        
+        # Sardor (Floor Leader) - faqat o'z qavatidagi talabalarni ko'radi (faqat o'qish)
+        elif hasattr(user, 'role') and user.role == 'sardor':
+            try:
+                floor_leader = FloorLeader.objects.get(user=user)
+                return Student.objects.filter(
+                    floor=floor_leader.floor,
+                    dormitory=floor_leader.floor.dormitory,
+                    is_active=True
+                )
+            except FloorLeader.DoesNotExist:
+                return Student.objects.none()
+        
+        # Student - faqat o'zini ko'radi
         return Student.objects.filter(user=user)
+    
+    def update(self, request, *args, **kwargs):
+        """Faqat admin tahrirlashi mumkin"""
+        user = request.user
+        if not user.is_superuser and (not hasattr(user, 'role') or user.role != 'admin'):
+            return Response(
+                {"error": "Faqat admin talaba ma'lumotlarini tahrirlashi mumkin"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().update(request, *args, **kwargs)
+    
+    def destroy(self, request, *args, **kwargs):
+        """Faqat admin o'chirishi mumkin"""
+        user = request.user
+        if not user.is_superuser and (not hasattr(user, 'role') or user.role != 'admin'):
+            return Response(
+                {"error": "Faqat admin talabani o'chirishi mumkin"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().destroy(request, *args, **kwargs)
 
 
 # ==================== APPLICATION VIEWS ====================
@@ -426,6 +485,13 @@ class ApplicationCreateView(generics.CreateAPIView):
     serializer_class = ApplicationSerializer
     parser_classes = [MultiPartParser, FormParser]
     permission_classes = [AllowAny]
+    
+    def perform_create(self, serializer):
+        # Agar foydalanuvchi tizimga kirgan bo'lsa, user ni biriktirish
+        if self.request.user.is_authenticated:
+            serializer.save(user=self.request.user)
+        else:
+            serializer.save()
 
 
 class ApplicationDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -505,17 +571,19 @@ class ApplicationRejectView(generics.UpdateAPIView):
 class PaymentListView(generics.ListAPIView):
     serializer_class = PaymentSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['student', 'status', 'method']
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['student', 'status', 'method', 'dormitory']
+    ordering_fields = ['paid_date', 'amount', 'valid_until']
+    ordering = ['-paid_date']  # Eng yangi to'lovlar birinchi
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Payment.objects.none()
         user = self.request.user
         if user.is_superuser:
-            return Payment.objects.all()
+            return Payment.objects.select_related('student', 'dormitory').all()
         elif hasattr(user, 'role') and user.role == 'admin':
-            return Payment.objects.filter(dormitory__admin=user)
+            return Payment.objects.select_related('student', 'dormitory').filter(dormitory__admin=user)
         return Payment.objects.none()
 
 class PaymentCreateView(generics.CreateAPIView):
@@ -525,13 +593,34 @@ class PaymentCreateView(generics.CreateAPIView):
 
     def perform_create(self, serializer):
         student = serializer.validated_data['student']
-
-        try:
+        
+        # Dormitory ni aniqlash
+        dormitory = None
+        
+        # 1. Agar student floor ga biriktirilgan bo'lsa
+        if student.floor and student.floor.dormitory:
             dormitory = student.floor.dormitory
-        except AttributeError:
-            raise serializers.ValidationError("Studentning floor yoki dormitorysi mavjud emas!")
-
-        serializer.save(dormitory=dormitory)
+        # 2. Agar student dormitory ga biriktirilgan bo'lsa (lekin floor yo'q)
+        elif student.dormitory:
+            dormitory = student.dormitory
+        # 3. Agar admin o'z yotoqxonasiga to'lov qo'shayotgan bo'lsa
+        elif hasattr(self.request.user, 'role') and self.request.user.role == 'admin':
+            dormitory = Dormitory.objects.filter(admin=self.request.user).first()
+        
+        if not dormitory:
+            raise serializers.ValidationError({
+                "error": "Talaba hech qaysi yotoqxonaga biriktirilmagan. Avval talabani yotoqxonaga biriktiring."
+            })
+        
+        # To'lovni saqlash
+        payment = serializer.save(dormitory=dormitory)
+        
+        # Talabaga bildirishnoma yuborish
+        if student.user and payment.status == 'APPROVED':
+            ApplicationNotification.objects.create(
+                user=student.user,
+                message=f"To'lovingiz qabul qilindi. Summa: {payment.amount} so'm. Amal qilish muddati: {payment.valid_until or 'Korsatilmagan'}"
+            )
 
 class PaymentDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = PaymentSerializer
@@ -546,6 +635,27 @@ class PaymentDetailView(generics.RetrieveUpdateDestroyAPIView):
         elif hasattr(user, 'role') and user.role == 'admin':
             return Payment.objects.filter(dormitory__admin=user)
         return Payment.objects.none()
+    
+    def perform_update(self, serializer):
+        """To'lov yangilanganda talabaga bildirishnoma yuborish"""
+        old_status = self.get_object().status
+        payment = serializer.save()
+        
+        # Agar status APPROVED ga o'zgartirilgan bo'lsa
+        if old_status != 'APPROVED' and payment.status == 'APPROVED':
+            if payment.student.user:
+                ApplicationNotification.objects.create(
+                    user=payment.student.user,
+                    message=f"To'lovingiz tasdiqlandi. Summa: {payment.amount} so'm. Amal qilish muddati: {payment.valid_until or 'Ko\'rsatilmagan'}"
+                )
+        
+        # Agar status CANCELLED ga o'zgartirilgan bo'lsa
+        elif old_status != 'CANCELLED' and payment.status == 'CANCELLED':
+            if payment.student.user:
+                ApplicationNotification.objects.create(
+                    user=payment.student.user,
+                    message=f"To'lovingiz bekor qilindi. Summa: {payment.amount} so'm. Sabab: {payment.comment or 'Ko\'rsatilmagan'}"
+                )
 
 
 # ==================== TASK VIEWS ====================
@@ -955,9 +1065,12 @@ class NotificationsView(APIView):
         paginator.page_size = 20
         
         page = paginator.paginate_queryset(all_notifications, request)
-        serializer = UnifiedNotificationSerializer(page, many=True)
+        if page is not None:
+            serializer = UnifiedNotificationSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
         
-        return paginator.get_paginated_response(serializer.data)
+        serializer = UnifiedNotificationSerializer(all_notifications, many=True)
+        return Response(serializer.data)
 
 
 
@@ -1058,6 +1171,36 @@ class UnreadNotificationCountView(APIView):
             "user_notifications": user_count,
             "application_notifications": app_count
         })
+
+
+# ==================== ADMIN NOTIFICATION MANAGEMENT ====================
+class NotificationCreateView(generics.CreateAPIView):
+    """Admin tomonidan bildirishnoma yaratish"""
+    queryset = Notification.objects.all()
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAdminOrDormitoryAdmin]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+
+class NotificationListView(generics.ListAPIView):
+    """Admin tomonidan yaratilgan bildirishnomalar ro'yxati"""
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAdminOrDormitoryAdmin]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['target_type', 'is_active']
+    
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Notification.objects.none()
+        return Notification.objects.all().order_by('-created_at')
+
+
+class NotificationDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Admin tomonidan yaratilgan bildirishnomani ko'rish/tahrirlash/o'chirish"""
+    queryset = Notification.objects.all()
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAdminOrDormitoryAdmin]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
 
 
@@ -1197,29 +1340,42 @@ class AdminDashboardStatsView(APIView):
         active_students = students.filter(is_active=True).count()
         inactive_students = students.filter(is_active=False).count()
         
-        # Bo'sh joylar statistikasi
+        # Bo'sh joylar statistikasi (Django ORM aggregate ishlatish)
+        from django.db.models import Sum
+        
         total_rooms = rooms.count()
-        total_capacity = sum(room.capacity or 0 for room in rooms)
-        total_occupied = sum(room.current_occupancy for room in rooms)
+        total_capacity = rooms.aggregate(Sum('capacity'))['capacity__sum'] or 0
+        total_occupied = rooms.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
         total_free = total_capacity - total_occupied
         
         male_rooms = rooms.filter(gender='male')
-        male_capacity = sum(room.capacity or 0 for room in male_rooms)
-        male_occupied = sum(room.current_occupancy for room in male_rooms)
+        male_capacity = male_rooms.aggregate(Sum('capacity'))['capacity__sum'] or 0
+        male_occupied = male_rooms.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
         male_free = male_capacity - male_occupied
         
         female_rooms = rooms.filter(gender='female')
-        female_capacity = sum(room.capacity or 0 for room in female_rooms)
-        female_occupied = sum(room.current_occupancy for room in female_rooms)
+        female_capacity = female_rooms.aggregate(Sum('capacity'))['capacity__sum'] or 0
+        female_occupied = female_rooms.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
         female_free = female_capacity - female_occupied
         
+        # Xonalar status bo'yicha
+        available_rooms = rooms.filter(status='AVAILABLE').count()
+        partially_occupied_rooms = rooms.filter(status='PARTIALLY_OCCUPIED').count()
+        fully_occupied_rooms = rooms.filter(status='FULLY_OCCUPIED').count()
+        
+        # Occupancy rate (band bo'lish foizi)
+        total_occupancy_rate = round((total_occupied / total_capacity * 100) if total_capacity > 0 else 0, 1)
+        male_occupancy_rate = round((male_occupied / male_capacity * 100) if male_capacity > 0 else 0, 1)
+        female_occupancy_rate = round((female_occupied / female_capacity * 100) if female_capacity > 0 else 0, 1)
+        
         # To'lovlar statistikasi
+        from django.db.models import Sum
+        
         total_payments = payments.count()
         approved_payments = payments.filter(status='APPROVED').count()
         cancelled_payments = payments.filter(status='CANCELLED').count()
         
         # To'lov summasi
-        from django.db.models import Sum
         total_amount = payments.filter(status='APPROVED').aggregate(Sum('amount'))['amount__sum'] or 0
         
         # Qarzdorlar (hech to'lov qilmagan yoki oxirgi to'lovi 30 kundan ko'p bo'lgan)
@@ -1261,19 +1417,27 @@ class AdminDashboardStatsView(APIView):
                     "rooms": total_rooms,
                     "capacity": total_capacity,
                     "occupied": total_occupied,
-                    "free": total_free
+                    "free": total_free,
+                    "occupancy_rate": total_occupancy_rate
                 },
                 "male": {
                     "rooms": male_rooms.count(),
                     "capacity": male_capacity,
                     "occupied": male_occupied,
-                    "free": male_free
+                    "free": male_free,
+                    "occupancy_rate": male_occupancy_rate
                 },
                 "female": {
                     "rooms": female_rooms.count(),
                     "capacity": female_capacity,
                     "occupied": female_occupied,
-                    "free": female_free
+                    "free": female_free,
+                    "occupancy_rate": female_occupancy_rate
+                },
+                "by_status": {
+                    "available": available_rooms,
+                    "partially_occupied": partially_occupied_rooms,
+                    "fully_occupied": fully_occupied_rooms
                 }
             },
             "payments": {
@@ -1381,10 +1545,12 @@ class GeneralStatsView(APIView):
         approved_applications = Application.objects.filter(status='Approved').count()
         rejected_applications = Application.objects.filter(status='Rejected').count()
 
-        # Xonalar statistikasi
+        # Xonalar statistikasi (Django ORM aggregate ishlatish)
+        from django.db.models import Sum
+        
         total_rooms = Room.objects.count()
-        total_capacity = sum(room.capacity or 0 for room in Room.objects.all())
-        total_occupied = sum(room.current_occupancy for room in Room.objects.all())
+        total_capacity = Room.objects.aggregate(Sum('capacity'))['capacity__sum'] or 0
+        total_occupied = Room.objects.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
         total_free = total_capacity - total_occupied
 
         # Viloyatlar statistikasi

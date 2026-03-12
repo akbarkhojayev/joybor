@@ -76,6 +76,8 @@ class Dormitory(models.Model):
     amenities = models.ManyToManyField(Amenity, blank=True)
     is_active = models.BooleanField(default=True)
     distance = models.FloatField(blank=True, null=True)
+    link = models.CharField(max_length=255, blank=True, null=True)
+    phone_numer = models.CharField(max_length=20, blank=True, null=True)
 
     def __str__(self):
         return self.name
@@ -127,20 +129,39 @@ class Room(models.Model):
 
     @property
     def free_beds(self):
+        """Bo'sh o'rinlar soni"""
         if not self.capacity:
             return 0
         return max(self.capacity - self.current_occupancy, 0)
-
-    def save(self, *args, **kwargs):
-        # 1) Xonadagi talabalar sonini avtomatik olis
-
-        # 2) Statusni avtomatik tushirish
+    
+    def update_occupancy(self):
+        """Xonadagi talabalar sonini hisoblash va statusni yangilash"""
+        # Xonadagi faol talabalar sonini hisoblash
+        from .models import Student
+        self.current_occupancy = Student.objects.filter(room=self, is_active=True).count()
+        
+        # Statusni yangilash
         if self.current_occupancy == 0:
             self.status = 'AVAILABLE'
         elif self.capacity and self.current_occupancy < self.capacity:
             self.status = 'PARTIALLY_OCCUPIED'
-        else:
+        elif self.capacity and self.current_occupancy >= self.capacity:
             self.status = 'FULLY_OCCUPIED'
+        else:
+            self.status = 'AVAILABLE'
+        
+        self.save()
+
+    def save(self, *args, **kwargs):
+        # Statusni avtomatik yangilash
+        if self.current_occupancy == 0:
+            self.status = 'AVAILABLE'
+        elif self.capacity and self.current_occupancy < self.capacity:
+            self.status = 'PARTIALLY_OCCUPIED'
+        elif self.capacity and self.current_occupancy >= self.capacity:
+            self.status = 'FULLY_OCCUPIED'
+        else:
+            self.status = 'AVAILABLE'
 
         super().save(*args, **kwargs)
 

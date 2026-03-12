@@ -28,10 +28,32 @@ class IsAdminOrDormitoryAdmin(BasePermission):
         return IsAdminUser().has_permission(request, view) or IsDormitoryAdmin().has_permission(request, view)
 
 class IsFloorLeader(BasePermission):
+    """Qavat sardori (Floor Leader) uchun permission"""
     def has_permission(self, request, view):
         if not request.user.is_authenticated:
             return False
-        # role flag or record existence
-        if getattr(request.user, 'role', None) == 'floor_leader':
+        
+        # User role 'sardor' bo'lishi va FloorLeader yozuvi bo'lishi kerak
+        if hasattr(request.user, 'role') and request.user.role == 'sardor':
             return FloorLeader.objects.filter(user=request.user).exists()
-        return FloorLeader.objects.filter(user=request.user).exists()
+        
+        return False
+
+
+class IsAdminOrFloorLeader(BasePermission):
+    """Admin yoki Qavat sardori uchun permission"""
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+        
+        # Admin yoki Sardor
+        if request.user.is_superuser:
+            return True
+        
+        if hasattr(request.user, 'role'):
+            if request.user.role == 'admin':
+                return Dormitory.objects.filter(admin=request.user).exists()
+            elif request.user.role == 'sardor':
+                return FloorLeader.objects.filter(user=request.user).exists()
+        
+        return False

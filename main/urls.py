@@ -81,6 +81,11 @@ urlpatterns = [
     path('notifications/mark-all-read/', MarkAllNotificationsAsReadView.as_view(), name='mark-all-notifications-read'),
     path('notifications/unread-count/', UnreadNotificationCountView.as_view(), name='unread-notification-count'),
     
+    # Admin Notification Management
+    path('admin/notifications/', NotificationListView.as_view(), name='admin-notification-list'),
+    path('admin/notifications/create/', NotificationCreateView.as_view(), name='admin-notification-create'),
+    path('admin/notifications/<int:pk>/', NotificationDetailView.as_view(), name='admin-notification-detail'),
+    
     # Applications
     path('applications/', ApplicationListView.as_view(), name='application-list'),
     path('applications/create/', ApplicationCreateView.as_view(), name='application-create'),
