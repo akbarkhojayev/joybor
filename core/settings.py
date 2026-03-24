@@ -169,3 +169,6 @@ AUTH_USER_MODEL = 'main.User'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Google OAuth2
+GOOGLE_CLIENT_ID = '451916079320-9sl3isdi33p9ro6e0f7o05h2k2pq6l62.apps.googleusercontent.com'

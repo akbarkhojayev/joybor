@@ -721,6 +721,10 @@ class DutyScheduleSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class GoogleTokenSerializer(serializers.Serializer):
+    token = serializers.CharField(help_text="Google ID Token yoki Access Token")
+
+
 class AssignRoomSerializer(serializers.Serializer):
     """Talabaga xona biriktirish uchun serializer"""
     floor = serializers.PrimaryKeyRelatedField(queryset=Floor.objects.all())
@@ -861,3 +865,163 @@ class ApplicationRejectSerializer(serializers.Serializer):
         
         # Signal avtomatik bildirishnoma yuboradi
         return instance
+
+
+class ComplaintSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.name', read_only=True)
+    dormitory_name = serializers.CharField(source='dormitory.name', read_only=True)
+
+    class Meta:
+        model = Complaint
+        fields = '__all__'
+        read_only_fields = ['student', 'dormitory', 'status', 'admin_response', 'created_at', 'updated_at']
+
+
+class StaffSerializer(serializers.ModelSerializer):
+    dormitory_name = serializers.CharField(source='dormitory.name', read_only=True)
+    position_display = serializers.CharField(source='get_position_display', read_only=True)
+
+    class Meta:
+        model = Staff
+        fields = '__all__'
+        read_only_fields = ['dormitory']
+
+
+class StaffAttendanceSerializer(serializers.ModelSerializer):
+    staff_name = serializers.CharField(source='staff.name', read_only=True)
+    staff_position = serializers.CharField(source='staff.get_position_display', read_only=True)
+
+    class Meta:
+        model = StaffAttendance
+        fields = '__all__'
+
+
+class TransferRoomSerializer(serializers.Serializer):
+    """Talabani bir xonadan boshqa xonaga o'tkazish (to'la xonadan ham)"""
+    new_floor = serializers.PrimaryKeyRelatedField(queryset=Floor.objects.all())
+    new_room = serializers.PrimaryKeyRelatedField(queryset=Room.objects.all())
+    force = serializers.BooleanField(
+        default=False,
+        help_text="True bo'lsa to'la xonadan ham o'tkazadi"
+    )
+
+    def validate(self, data):
+        new_floor = data['new_floor']
+        new_room = data['new_room']
+
+        if new_room.floor != new_floor:
+            raise serializers.ValidationError({
+                "new_room": f"Bu xona {new_floor.name} qavatida emas"
+            })
+
+        # Xonada joy borligini tekshirish
+        current = Student.objects.filter(room=new_room, is_active=True).count()
+        if current >= (new_room.capacity or 0):
+            if not data.get('force'):
+                raise serializers.ValidationError({
+                    "new_room": f"Bu xona to'la ({current}/{new_room.capacity}). "
+                                f"force=true yuborib majburan o'tkazishingiz mumkin."
+                })
+        return data
+
+    def update(self, instance, validated_data):
+        new_floor = validated_data['new_floor']
+        new_room = validated_data['new_room']
+
+        # Jins tekshiruvi
+        student_gender = 'male' if instance.gender == 'Erkak' else 'female'
+        if new_room.gender != student_gender:
+            raise serializers.ValidationError({
+                "error": f"Talaba jinsi ({instance.gender}) va xona jinsi ({new_room.gender}) mos kelmaydi"
+            })
+
+        old_room = instance.room
+        old_floor = instance.floor
+
+        instance.floor = new_floor
+        instance.room = new_room
+        instance.is_active = True
+        instance.placement_status = 'Joylashdi'
+        instance.save()
+
+        # Eski xonani yangilash
+        if old_room:
+            old_room.update_occupancy()
+
+        # Yangi xonani yangilash
+        new_room.update_occupancy()
+
+        # Bildirishnoma
+        if instance.user:
+            old_info = f"{old_floor.name} qavat, {old_room.name} xona" if old_room else "eski xona"
+            ApplicationNotification.objects.create(
+                user=instance.user,
+                message=f"Xonangiz o'zgartirildi: {old_info} → {new_floor.name} qavat, {new_room.name} xona"
+            )
+
+        return instance
+
+
+class AttendanceSessionCreateSerializer(serializers.ModelSerializer):
+    """Sardor davomat sessiyasi yaratish + talabalarni avtomatik qo'shish"""
+    student_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False,
+        help_text="Davomat belgilanadigan talabalar ID lari (bo'sh qolsa qavatdagi barcha talabalar)"
+    )
+    records = serializers.ListField(
+        child=serializers.DictField(),
+        write_only=True,
+        required=False,
+        help_text="[{student_id: 1, status: 'in'}, ...] - har bir talaba uchun status"
+    )
+
+    class Meta:
+        model = AttendanceSession
+        fields = ['id', 'date', 'floor', 'leader', 'student_ids', 'records']
+        read_only_fields = ['leader']
+
+    def create(self, validated_data):
+        student_ids = validated_data.pop('student_ids', [])
+        records_data = validated_data.pop('records', [])
+
+        session = AttendanceSession.objects.create(**validated_data)
+
+        # records_data berilgan bo'lsa - ularni ishlatamiz
+        if records_data:
+            for rec in records_data:
+                try:
+                    student = Student.objects.get(id=rec['student_id'], is_active=True)
+                    AttendanceRecord.objects.get_or_create(
+                        session=session,
+                        student=student,
+                        defaults={'status': rec.get('status', 'in')}
+                    )
+                except Student.DoesNotExist:
+                    pass
+        elif student_ids:
+            # student_ids berilgan bo'lsa - hammasi 'in' bilan
+            for sid in student_ids:
+                try:
+                    student = Student.objects.get(id=sid, is_active=True)
+                    AttendanceRecord.objects.get_or_create(
+                        session=session,
+                        student=student,
+                        defaults={'status': 'in'}
+                    )
+                except Student.DoesNotExist:
+                    pass
+        else:
+            # Hech narsa berilmasa - qavatdagi barcha talabalar 'in'
+            students = Student.objects.filter(
+                floor=validated_data['floor'], is_active=True
+            )
+            for student in students:
+                AttendanceRecord.objects.get_or_create(
+                    session=session,
+                    student=student,
+                    defaults={'status': 'in'}
+                )
+
+        return session

@@ -5,3 +5,5 @@ django-filter==24.3
 django-cors-headers==4.6.0
 drf-yasg==1.21.8
 Pillow==11.0.0
+google-auth==2.29.0
+requests==2.32.3

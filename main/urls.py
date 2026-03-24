@@ -5,6 +5,9 @@ urlpatterns = [
     # Auth
     path('register/', RegisterView.as_view(), name='register'),
     path('me/', CurrentUserView.as_view(), name='current-user'),
+    path('check-username/', CheckUsernameView.as_view(), name='check-username'),
+    path('auth/google/', GoogleLoginView.as_view(), name='google-login'),
+    path('auth/google/register/', GoogleRegisterView.as_view(), name='google-register'),
     
     # General Stats
     path('stats/', GeneralStatsView.as_view(), name='general-stats'),
@@ -144,5 +147,27 @@ urlpatterns = [
     # Duty Schedules
     path('duty-schedules/', DutyScheduleListView.as_view(), name='duty-schedule-list'),
     path('duty-schedules/<int:pk>/', DutyScheduleDetailView.as_view(), name='duty-schedule-detail'),
+
+    # Complaints (Shikoyatlar)
+    path('complaints/', ComplaintListView.as_view(), name='complaint-list'),
+    path('complaints/<int:pk>/', ComplaintDetailView.as_view(), name='complaint-detail'),
+
+    # Staff (Xodimlar)
+    path('staff/', StaffListView.as_view(), name='staff-list'),
+    path('staff/<int:pk>/', StaffDetailView.as_view(), name='staff-detail'),
+
+    # Staff Attendance (Xodimlar nazorati)
+    path('staff-attendance/', StaffAttendanceListView.as_view(), name='staff-attendance-list'),
+    path('staff-attendance/<int:pk>/', StaffAttendanceDetailView.as_view(), name='staff-attendance-detail'),
+
+    # Transfer Room (Xona almashtirish)
+    path('students/<int:student_id>/transfer-room/', TransferStudentRoomView.as_view(), name='transfer-room'),
+
+    # Floor Leader Dashboard
+    path('floor-leader/dashboard/', FloorLeaderDashboardView.as_view(), name='floor-leader-dashboard'),
+
+    # Attendance full session (sardor uchun)
+    path('attendance-sessions/full-create/', AttendanceSessionFullCreateView.as_view(), name='attendance-session-full-create'),
+    path('attendance-records/<int:pk>/update/', AttendanceRecordUpdateView.as_view(), name='attendance-record-update'),
 
 ]

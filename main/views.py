@@ -11,6 +11,7 @@ from .serializers import *
 from .permisssions import *
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.exceptions import PermissionDenied
+from drf_yasg.utils import swagger_auto_schema
 
 
 # ==================== AUTH VIEWS ====================
@@ -26,6 +27,217 @@ class RegisterView(generics.CreateAPIView):
             {"message": "Foydalanuvchi muvaffaqiyatli ro'yxatdan o'tdi"},
             status=status.HTTP_201_CREATED
         )
+
+
+class GoogleLoginView(APIView):
+    """Google OAuth2 orqali faqat LOGIN"""
+    permission_classes = [AllowAny]
+    serializer_class = GoogleTokenSerializer  # Swagger uchun
+
+    @swagger_auto_schema(request_body=GoogleTokenSerializer)
+    def post(self, request):
+        serializer = GoogleTokenSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        token = serializer.validated_data['token']
+
+        google_user = self._verify_google_token(token)
+        if not google_user:
+            return Response({"error": "Noto'g'ri yoki muddati o'tgan Google token"}, status=status.HTTP_400_BAD_REQUEST)
+
+        email = google_user.get('email')
+        if not email:
+            return Response({"error": "Google akkauntda email topilmadi"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Faqat mavjud userni topish
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({
+                "error": "Bu Google akkaunt bilan ro'yxatdan o'tilmagan. Avval ro'yxatdan o'ting.",
+                "email": email,
+                "is_registered": False,
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(user)
+
+        return Response({
+            "message": "Muvaffaqiyatli kirish",
+            "is_new_user": False,
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role,
+            }
+        }, status=status.HTTP_200_OK)
+
+    def _verify_google_token(self, token):
+        import requests as req
+        from django.conf import settings
+
+        # ID token tekshirish
+        try:
+            resp = req.get(
+                'https://oauth2.googleapis.com/tokeninfo',
+                params={'id_token': token},
+                timeout=10
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                client_id = getattr(settings, 'GOOGLE_CLIENT_ID', '')
+                if client_id and data.get('aud') != client_id:
+                    return None
+                return data
+        except Exception:
+            pass
+
+        # Access token tekshirish (fallback)
+        try:
+            resp = req.get(
+                'https://www.googleapis.com/oauth2/v3/userinfo',
+                headers={'Authorization': f'Bearer {token}'},
+                timeout=10
+            )
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception:
+            pass
+
+        return None
+
+
+class GoogleRegisterView(APIView):
+    """Google OAuth2 orqali faqat REGISTER (faqat student uchun)"""
+    permission_classes = [AllowAny]
+    serializer_class = GoogleTokenSerializer  # Swagger uchun
+
+    @swagger_auto_schema(request_body=GoogleTokenSerializer)
+    def post(self, request):
+        serializer = GoogleTokenSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        token = serializer.validated_data['token']
+
+        google_user = self._verify_google_token(token)
+        if not google_user:
+            return Response({"error": "Noto'g'ri yoki muddati o'tgan Google token"}, status=status.HTTP_400_BAD_REQUEST)
+
+        email = google_user.get('email')
+        if not email:
+            return Response({"error": "Google akkauntda email topilmadi"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Allaqachon ro'yxatdan o'tganmi tekshirish
+        if User.objects.filter(email=email).exists():
+            return Response({
+                "error": "Bu Google akkaunt allaqachon ro'yxatdan o'tgan. Login qiling.",
+                "email": email,
+                "is_registered": True,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Yangi student yaratish
+        username = self._generate_username(email)
+        user = User.objects.create(
+            email=email,
+            username=username,
+            first_name=google_user.get('given_name', ''),
+            last_name=google_user.get('family_name', ''),
+            role='student',
+        )
+        user.set_unusable_password()
+        user.save()
+
+        UserProfile.objects.create(user=user)
+
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(user)
+
+        return Response({
+            "message": "Muvaffaqiyatli ro'yxatdan o'tish",
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role,
+            }
+        }, status=status.HTTP_201_CREATED)
+
+    def _verify_google_token(self, token):
+        import requests as req
+        from django.conf import settings
+
+        # ID token tekshirish
+        try:
+            resp = req.get(
+                'https://oauth2.googleapis.com/tokeninfo',
+                params={'id_token': token},
+                timeout=10
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                client_id = getattr(settings, 'GOOGLE_CLIENT_ID', '')
+                if client_id and data.get('aud') != client_id:
+                    return None
+                return data
+        except Exception:
+            pass
+
+        # Access token tekshirish (fallback)
+        try:
+            resp = req.get(
+                'https://www.googleapis.com/oauth2/v3/userinfo',
+                headers={'Authorization': f'Bearer {token}'},
+                timeout=10
+            )
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception:
+            pass
+
+        return None
+
+    def _generate_username(self, email):
+        import re
+        base = re.sub(r'[^a-zA-Z0-9]', '_', email.split('@')[0])
+        username = base
+        counter = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{base}_{counter}"
+            counter += 1
+        return username
+
+
+class CheckUsernameView(APIView):
+    """Username mavjudligini tekshirish"""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        username = request.query_params.get('username', '').strip()
+
+        if not username:
+            return Response(
+                {"error": "username parametri kiritilmagan"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        exists = User.objects.filter(username__iexact=username).exists()
+
+        return Response({
+            "username": username,
+            "available": not exists,
+            "message": "Bu username band" if exists else "Bu username mavjud emas"
+        })
 
 
 class CurrentUserView(generics.RetrieveUpdateAPIView):
@@ -1306,11 +1518,15 @@ class UnassignedStudentsView(generics.ListAPIView):
 class AdminDashboardStatsView(APIView):
     """Admin uchun to'liq statistika - bitta endpoint"""
     permission_classes = [IsAdminOrDormitoryAdmin]
-    
+
     def get(self, request):
+        from django.db.models import Sum, Count, Q
+        from django.utils import timezone
+        from datetime import timedelta, date
+        import calendar
+
         user = request.user
-        
-        # Admin o'z yotoqxonasi statistikasini ko'radi
+
         if user.is_superuser:
             students = Student.objects.all()
             rooms = Room.objects.all()
@@ -1328,133 +1544,178 @@ class AdminDashboardStatsView(APIView):
             payments = Payment.objects.filter(dormitory=dormitory)
             applications = Application.objects.filter(dormitory=dormitory)
         else:
-            return Response(
-                {"error": "Ruxsat yo'q"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        # Talabalar statistikasi
-        total_students = students.count()
-        male_students = students.filter(gender='Erkak').count()
+            return Response({"error": "Ruxsat yo'q"}, status=status.HTTP_403_FORBIDDEN)
+
+        # ── Talabalar ──────────────────────────────────────────────
+        total_students  = students.count()
+        male_students   = students.filter(gender='Erkak').count()
         female_students = students.filter(gender='Ayol').count()
-        active_students = students.filter(is_active=True).count()
+        active_students   = students.filter(is_active=True).count()
         inactive_students = students.filter(is_active=False).count()
-        
-        # Bo'sh joylar statistikasi (Django ORM aggregate ishlatish)
-        from django.db.models import Sum
-        
-        total_rooms = rooms.count()
-        total_capacity = rooms.aggregate(Sum('capacity'))['capacity__sum'] or 0
-        total_occupied = rooms.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
-        total_free = total_capacity - total_occupied
-        
-        male_rooms = rooms.filter(gender='male')
-        male_capacity = male_rooms.aggregate(Sum('capacity'))['capacity__sum'] or 0
-        male_occupied = male_rooms.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
-        male_free = male_capacity - male_occupied
-        
+
+        students_by_course = {
+            course: students.filter(course=course).count()
+            for course in ['1-kurs', '2-kurs', '3-kurs', '4-kurs', '5-kurs']
+        }
+
+        # ── Xonalar (real Student soni bilan) ─────────────────────
+        # current_occupancy ni DB dan emas, real Student queryset dan olamiz
+        room_ids = list(rooms.values_list('id', flat=True))
+
+        # Har bir xona uchun faol talabalar soni
+        occupied_per_room = (
+            Student.objects.filter(room_id__in=room_ids, is_active=True)
+            .values('room_id')
+            .annotate(cnt=Count('id'))
+        )
+        occupied_map = {r['room_id']: r['cnt'] for r in occupied_per_room}
+
+        total_capacity = rooms.aggregate(s=Sum('capacity'))['s'] or 0
+        total_occupied = sum(occupied_map.values())
+        total_free     = max(total_capacity - total_occupied, 0)
+
+        male_rooms   = rooms.filter(gender='male')
         female_rooms = rooms.filter(gender='female')
-        female_capacity = female_rooms.aggregate(Sum('capacity'))['capacity__sum'] or 0
-        female_occupied = female_rooms.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
-        female_free = female_capacity - female_occupied
-        
-        # Xonalar status bo'yicha
-        available_rooms = rooms.filter(status='AVAILABLE').count()
-        partially_occupied_rooms = rooms.filter(status='PARTIALLY_OCCUPIED').count()
-        fully_occupied_rooms = rooms.filter(status='FULLY_OCCUPIED').count()
-        
-        # Occupancy rate (band bo'lish foizi)
-        total_occupancy_rate = round((total_occupied / total_capacity * 100) if total_capacity > 0 else 0, 1)
-        male_occupancy_rate = round((male_occupied / male_capacity * 100) if male_capacity > 0 else 0, 1)
-        female_occupancy_rate = round((female_occupied / female_capacity * 100) if female_capacity > 0 else 0, 1)
-        
-        # To'lovlar statistikasi
-        from django.db.models import Sum
-        
-        total_payments = payments.count()
+
+        male_room_ids   = list(male_rooms.values_list('id', flat=True))
+        female_room_ids = list(female_rooms.values_list('id', flat=True))
+
+        male_capacity   = male_rooms.aggregate(s=Sum('capacity'))['s'] or 0
+        female_capacity = female_rooms.aggregate(s=Sum('capacity'))['s'] or 0
+
+        male_occupied   = sum(v for k, v in occupied_map.items() if k in male_room_ids)
+        female_occupied = sum(v for k, v in occupied_map.items() if k in female_room_ids)
+        male_free   = max(male_capacity - male_occupied, 0)
+        female_free = max(female_capacity - female_occupied, 0)
+
+        def occ_rate(occ, cap):
+            return round(occ / cap * 100, 1) if cap > 0 else 0.0
+
+        # Status hisoblash (real ma'lumot asosida)
+        available_rooms          = sum(1 for rid in room_ids if occupied_map.get(rid, 0) == 0)
+        fully_occupied_rooms     = 0
+        partially_occupied_rooms = 0
+        for r in rooms:
+            occ = occupied_map.get(r.id, 0)
+            cap = r.capacity or 0
+            if cap > 0 and occ >= cap:
+                fully_occupied_rooms += 1
+            elif occ > 0:
+                partially_occupied_rooms += 1
+
+        # ── To'lovlar ─────────────────────────────────────────────
+        total_payments    = payments.count()
         approved_payments = payments.filter(status='APPROVED').count()
         cancelled_payments = payments.filter(status='CANCELLED').count()
-        
-        # To'lov summasi
-        total_amount = payments.filter(status='APPROVED').aggregate(Sum('amount'))['amount__sum'] or 0
-        
-        # Qarzdorlar (hech to'lov qilmagan yoki oxirgi to'lovi 30 kundan ko'p bo'lgan)
-        from django.utils import timezone
-        from datetime import timedelta
+        total_amount = payments.filter(status='APPROVED').aggregate(s=Sum('amount'))['s'] or 0
+
         thirty_days_ago = timezone.now() - timedelta(days=30)
-        
-        students_with_recent_payment = payments.filter(
-            status='APPROVED',
-            paid_date__gte=thirty_days_ago
-        ).values_list('student_id', flat=True).distinct()
-        
-        debtors_count = active_students - len(set(students_with_recent_payment))
-        paid_students_count = len(set(students_with_recent_payment))
-        
-        # Arizalar statistikasi
-        total_applications = applications.count()
-        pending_applications = applications.filter(status='Pending').count()
-        approved_applications = applications.filter(status='Approved').count()
-        rejected_applications = applications.filter(status='Rejected').count()
+        paid_student_ids = set(
+            payments.filter(status='APPROVED', paid_date__gte=thirty_days_ago)
+            .values_list('student_id', flat=True).distinct()
+        )
+        paid_students_count = len(paid_student_ids)
+        # Faqat faol talabalar orasidan qarzdorlar
+        active_student_ids = set(students.filter(is_active=True).values_list('id', flat=True))
+        debtors_count = max(len(active_student_ids - paid_student_ids), 0)
+
+        # ── Arizalar ──────────────────────────────────────────────
+        total_applications     = applications.count()
+        pending_applications   = applications.filter(status='Pending').count()
+        approved_applications  = applications.filter(status='Approved').count()
+        rejected_applications  = applications.filter(status='Rejected').count()
         cancelled_applications = applications.filter(status='Cancelled').count()
-        
-        # Kurs bo'yicha talabalar
-        students_by_course = {}
-        for course in ['1-kurs', '2-kurs', '3-kurs', '4-kurs', '5-kurs']:
-            students_by_course[course] = students.filter(course=course).count()
-        
+
+        # ── Daromad ───────────────────────────────────────────────
+        now = timezone.now()
+
+        monthly_income = payments.filter(
+            status='APPROVED',
+            paid_date__year=now.year,
+            paid_date__month=now.month
+        ).aggregate(s=Sum('amount'))['s'] or 0
+
+        yearly_income = payments.filter(
+            status='APPROVED',
+            paid_date__year=now.year
+        ).aggregate(s=Sum('amount'))['s'] or 0
+
+        # Oxirgi 6 oy (to'g'ri kalendar hisobi)
+        monthly_chart = []
+        for i in range(5, -1, -1):
+            # Joriy oydan i oy oldin
+            month = now.month - i
+            year  = now.year
+            while month <= 0:
+                month += 12
+                year  -= 1
+            m_income = payments.filter(
+                status='APPROVED',
+                paid_date__year=year,
+                paid_date__month=month
+            ).aggregate(s=Sum('amount'))['s'] or 0
+            monthly_chart.append({
+                "month": f"{year}-{month:02d}",
+                "income": m_income
+            })
+
         return Response({
             "students": {
-                "total": total_students,
-                "male": male_students,
-                "female": female_students,
-                "active": active_students,
+                "total":    total_students,
+                "male":     male_students,
+                "female":   female_students,
+                "active":   active_students,
                 "inactive": inactive_students,
-                "by_course": students_by_course
+                "by_course": students_by_course,
             },
             "rooms": {
                 "total": {
-                    "rooms": total_rooms,
-                    "capacity": total_capacity,
-                    "occupied": total_occupied,
-                    "free": total_free,
-                    "occupancy_rate": total_occupancy_rate
+                    "rooms":          rooms.count(),
+                    "capacity":       total_capacity,
+                    "occupied":       total_occupied,
+                    "free":           total_free,
+                    "occupancy_rate": occ_rate(total_occupied, total_capacity),
                 },
                 "male": {
-                    "rooms": male_rooms.count(),
-                    "capacity": male_capacity,
-                    "occupied": male_occupied,
-                    "free": male_free,
-                    "occupancy_rate": male_occupancy_rate
+                    "rooms":          male_rooms.count(),
+                    "capacity":       male_capacity,
+                    "occupied":       male_occupied,
+                    "free":           male_free,
+                    "occupancy_rate": occ_rate(male_occupied, male_capacity),
                 },
                 "female": {
-                    "rooms": female_rooms.count(),
-                    "capacity": female_capacity,
-                    "occupied": female_occupied,
-                    "free": female_free,
-                    "occupancy_rate": female_occupancy_rate
+                    "rooms":          female_rooms.count(),
+                    "capacity":       female_capacity,
+                    "occupied":       female_occupied,
+                    "free":           female_free,
+                    "occupancy_rate": occ_rate(female_occupied, female_capacity),
                 },
                 "by_status": {
-                    "available": available_rooms,
+                    "available":          available_rooms,
                     "partially_occupied": partially_occupied_rooms,
-                    "fully_occupied": fully_occupied_rooms
-                }
+                    "fully_occupied":     fully_occupied_rooms,
+                },
             },
             "payments": {
-                "total": total_payments,
-                "approved": approved_payments,
-                "cancelled": cancelled_payments,
+                "total":        total_payments,
+                "approved":     approved_payments,
+                "cancelled":    cancelled_payments,
                 "total_amount": total_amount,
                 "paid_students": paid_students_count,
-                "debtors": debtors_count
+                "debtors":      debtors_count,
             },
             "applications": {
-                "total": total_applications,
-                "pending": pending_applications,
-                "approved": approved_applications,
-                "rejected": rejected_applications,
-                "cancelled": cancelled_applications
-            }
+                "total":     total_applications,
+                "pending":   pending_applications,
+                "approved":  approved_applications,
+                "rejected":  rejected_applications,
+                "cancelled": cancelled_applications,
+            },
+            "income": {
+                "monthly":       monthly_income,
+                "yearly":        yearly_income,
+                "monthly_chart": monthly_chart,
+            },
         }, status=status.HTTP_200_OK)
 
 
@@ -1595,3 +1856,331 @@ class GeneralStatsView(APIView):
                 "total": total_apartments
             }
         }, status=status.HTTP_200_OK)
+
+
+# ==================== COMPLAINT VIEWS ====================
+class ComplaintListView(generics.ListCreateAPIView):
+    """Talaba shikoyat yuborish va ko'rish"""
+    serializer_class = ComplaintSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['status', 'category']
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Complaint.objects.none()
+        user = self.request.user
+        if user.is_superuser:
+            return Complaint.objects.all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            return Complaint.objects.filter(dormitory__admin=user)
+        # Talaba faqat o'z shikoyatlarini ko'radi
+        try:
+            student = Student.objects.get(user=user)
+            return Complaint.objects.filter(student=student)
+        except Student.DoesNotExist:
+            return Complaint.objects.none()
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        try:
+            student = Student.objects.get(user=user)
+        except Student.DoesNotExist:
+            raise PermissionDenied("Faqat talabalar shikoyat yuborishi mumkin")
+        if not student.dormitory:
+            raise PermissionDenied("Siz hech qaysi yotoqxonaga biriktirilmagansiz")
+        serializer.save(student=student, dormitory=student.dormitory)
+
+
+class ComplaintDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Shikoyatni ko'rish / admin javob berish"""
+    serializer_class = ComplaintSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Complaint.objects.none()
+        user = self.request.user
+        if user.is_superuser:
+            return Complaint.objects.all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            return Complaint.objects.filter(dormitory__admin=user)
+        try:
+            student = Student.objects.get(user=user)
+            return Complaint.objects.filter(student=student)
+        except Student.DoesNotExist:
+            return Complaint.objects.none()
+
+    def update(self, request, *args, **kwargs):
+        """Admin status va javob o'zgartira oladi"""
+        user = request.user
+        instance = self.get_object()
+        # Talaba faqat o'qiy oladi (update qila olmaydi)
+        if hasattr(user, 'role') and user.role == 'student':
+            return Response(
+                {"error": "Talaba shikoyatni o'zgartira olmaydi"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        # Admin status va admin_response ni yangilaydi
+        allowed_fields = ['status', 'admin_response']
+        data = {k: v for k, v in request.data.items() if k in allowed_fields}
+        serializer = self.get_serializer(instance, data=data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        complaint = serializer.save()
+
+        # Talabaga bildirishnoma
+        if complaint.student.user:
+            ApplicationNotification.objects.create(
+                user=complaint.student.user,
+                message=f"Shikoyatingizga javob berildi: {complaint.admin_response or ''} (Status: {complaint.get_status_display()})"
+            )
+        return Response(serializer.data)
+
+
+# ==================== STAFF VIEWS ====================
+class StaffListView(generics.ListCreateAPIView):
+    serializer_class = StaffSerializer
+    permission_classes = [IsAdminOrDormitoryAdmin]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ['position', 'is_active']
+    search_fields = ['name', 'last_name', 'phone']
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Staff.objects.none()
+        user = self.request.user
+        if user.is_superuser:
+            return Staff.objects.all()
+        return Staff.objects.filter(dormitory__admin=user)
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if user.is_superuser:
+            serializer.save()
+            return
+        try:
+            dormitory = Dormitory.objects.get(admin=user)
+        except Dormitory.DoesNotExist:
+            raise PermissionDenied("Sizga tegishli yotoqxona topilmadi")
+        serializer.save(dormitory=dormitory)
+
+
+class StaffDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = StaffSerializer
+    permission_classes = [IsAdminOrDormitoryAdmin]
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Staff.objects.none()
+        user = self.request.user
+        if user.is_superuser:
+            return Staff.objects.all()
+        return Staff.objects.filter(dormitory__admin=user)
+
+
+# ==================== STAFF ATTENDANCE VIEWS ====================
+class StaffAttendanceListView(generics.ListCreateAPIView):
+    serializer_class = StaffAttendanceSerializer
+    permission_classes = [IsAdminOrDormitoryAdmin]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['staff', 'date', 'status']
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return StaffAttendance.objects.none()
+        user = self.request.user
+        if user.is_superuser:
+            return StaffAttendance.objects.all()
+        return StaffAttendance.objects.filter(staff__dormitory__admin=user)
+
+
+class StaffAttendanceDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = StaffAttendanceSerializer
+    permission_classes = [IsAdminOrDormitoryAdmin]
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return StaffAttendance.objects.none()
+        user = self.request.user
+        if user.is_superuser:
+            return StaffAttendance.objects.all()
+        return StaffAttendance.objects.filter(staff__dormitory__admin=user)
+
+
+# ==================== TRANSFER ROOM VIEW ====================
+class TransferStudentRoomView(generics.UpdateAPIView):
+    """Talabani xonadan xonaga o'tkazish (to'la xonadan ham)"""
+    queryset = Student.objects.all()
+    serializer_class = TransferRoomSerializer
+    permission_classes = [IsAdminOrDormitoryAdmin]
+    lookup_field = 'id'
+    lookup_url_kwarg = 'student_id'
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Student.objects.none()
+        user = self.request.user
+        if user.is_superuser:
+            return Student.objects.all()
+        return Student.objects.filter(dormitory__admin=user)
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=False)
+        serializer.is_valid(raise_exception=True)
+        student = serializer.save()
+        return Response({
+            "message": "Talaba muvaffaqiyatli yangi xonaga o'tkazildi",
+            "student": {
+                "id": student.id,
+                "name": f"{student.name} {student.last_name}",
+                "new_floor": student.floor.name if student.floor else None,
+                "new_room": student.room.name if student.room else None,
+            }
+        }, status=status.HTTP_200_OK)
+
+
+# ==================== FLOOR LEADER DASHBOARD ====================
+class FloorLeaderDashboardView(APIView):
+    """Sardor uchun to'liq dashboard"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        try:
+            floor_leader = FloorLeader.objects.select_related('floor', 'floor__dormitory').get(user=user)
+        except FloorLeader.DoesNotExist:
+            return Response({"error": "Siz qavat sardori emassiz"}, status=status.HTTP_403_FORBIDDEN)
+
+        floor = floor_leader.floor
+        students = Student.objects.filter(floor=floor, is_active=True)
+
+        # Davomat statistikasi (bugungi)
+        from django.utils import timezone
+        today = timezone.now().date()
+        today_session = AttendanceSession.objects.filter(floor=floor, date=today).first()
+        today_present = 0
+        today_absent = 0
+        if today_session:
+            today_present = AttendanceRecord.objects.filter(session=today_session, status='in').count()
+            today_absent = AttendanceRecord.objects.filter(session=today_session, status='out').count()
+
+        # Oxirgi 7 kunlik davomat
+        from datetime import timedelta
+        last_7_days = []
+        for i in range(6, -1, -1):
+            day = today - timedelta(days=i)
+            session = AttendanceSession.objects.filter(floor=floor, date=day).first()
+            present = AttendanceRecord.objects.filter(session=session, status='in').count() if session else 0
+            last_7_days.append({
+                "date": str(day),
+                "present": present,
+                "total": students.count()
+            })
+
+        # Yig'im statistikasi
+        from django.db.models import Sum
+        collections = Collection.objects.filter(floor=floor)
+        total_collections = collections.count()
+        total_collected = CollectionRecord.objects.filter(
+            collection__floor=floor, status="To'lagan"
+        ).count()
+
+        # Vazifalar
+        tasks = TaskForLeader.objects.filter(user=user)
+
+        return Response({
+            "floor": {
+                "id": floor.id,
+                "name": floor.name,
+                "gender": floor.gender,
+                "dormitory": floor.dormitory.name,
+            },
+            "students": {
+                "total": students.count(),
+                "by_room": [
+                    {
+                        "room": r.name,
+                        "capacity": r.capacity,
+                        "occupied": r.current_occupancy,
+                        "free": r.free_beds,
+                    }
+                    for r in floor.room_set.all()
+                ]
+            },
+            "attendance_today": {
+                "has_session": today_session is not None,
+                "session_id": today_session.id if today_session else None,
+                "present": today_present,
+                "absent": today_absent,
+                "total": students.count(),
+            },
+            "attendance_last_7_days": last_7_days,
+            "collections": {
+                "total": total_collections,
+                "paid_records": total_collected,
+            },
+            "tasks": {
+                "total": tasks.count(),
+                "pending": tasks.filter(status='PENDING').count(),
+                "in_progress": tasks.filter(status='IN_PROGRESS').count(),
+                "completed": tasks.filter(status='COMPLETED').count(),
+            }
+        }, status=status.HTTP_200_OK)
+
+
+# ==================== ATTENDANCE FULL SESSION VIEW ====================
+class AttendanceSessionFullCreateView(generics.CreateAPIView):
+    """Sardor - davomat sessiyasi yaratish va talabalarni belgilash"""
+    serializer_class = AttendanceSessionCreateSerializer
+    permission_classes = [IsFloorLeader]
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        try:
+            floor_leader = FloorLeader.objects.get(user=user)
+        except FloorLeader.DoesNotExist:
+            raise PermissionDenied("Siz qavat sardori emassiz")
+        serializer.save(leader=floor_leader, floor=floor_leader.floor)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        session = serializer.instance
+        records = AttendanceRecord.objects.filter(session=session).select_related('student')
+        return Response({
+            "message": "Davomat muvaffaqiyatli yaratildi",
+            "session_id": session.id,
+            "date": str(session.date),
+            "floor": session.floor.name,
+            "total_students": records.count(),
+            "present": records.filter(status='in').count(),
+            "absent": records.filter(status='out').count(),
+            "records": [
+                {
+                    "student_id": r.student.id,
+                    "student_name": f"{r.student.name} {r.student.last_name}",
+                    "status": r.status
+                }
+                for r in records
+            ]
+        }, status=status.HTTP_201_CREATED)
+
+
+class AttendanceRecordUpdateView(generics.UpdateAPIView):
+    """Sardor - bitta talaba davomatini o'zgartirish"""
+    queryset = AttendanceRecord.objects.all()
+    serializer_class = AttendanceRecordSerializer
+    permission_classes = [IsFloorLeader]
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return AttendanceRecord.objects.none()
+        user = self.request.user
+        if user.is_superuser:
+            return AttendanceRecord.objects.all()
+        floor_leader = FloorLeader.objects.filter(user=user).first()
+        if floor_leader:
+            return AttendanceRecord.objects.filter(session__floor=floor_leader.floor)
+        return AttendanceRecord.objects.none()

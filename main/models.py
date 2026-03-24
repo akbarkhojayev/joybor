@@ -487,3 +487,82 @@ class DutySchedule(models.Model):
 
     def __str__(self):
         return f"{self.floor} - {self.room} - {self.date}"
+
+
+class Complaint(models.Model):
+    STATUS_CHOICES = (
+        ('pending', 'Kutilmoqda'),
+        ('in_progress', 'Ko\'rib chiqilmoqda'),
+        ('resolved', 'Hal qilindi'),
+        ('rejected', 'Rad etildi'),
+    )
+    CATEGORY_CHOICES = (
+        ('room', 'Xona muammosi'),
+        ('food', 'Ovqat muammosi'),
+        ('staff', 'Xodim muammosi'),
+        ('noise', 'Shovqin muammosi'),
+        ('other', 'Boshqa'),
+    )
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='complaints')
+    dormitory = models.ForeignKey(Dormitory, on_delete=models.CASCADE, related_name='complaints')
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='other')
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    admin_response = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.student.name} - {self.title}"
+
+
+class Staff(models.Model):
+    POSITION_CHOICES = (
+        ('cleaner', 'Tozalovchi'),
+        ('security', 'Qorovul'),
+        ('cook', 'Oshpaz'),
+        ('electrician', 'Elektrik'),
+        ('plumber', 'Santexnik'),
+        ('other', 'Boshqa'),
+    )
+    dormitory = models.ForeignKey(Dormitory, on_delete=models.CASCADE, related_name='staff')
+    name = models.CharField(max_length=120)
+    last_name = models.CharField(max_length=120, blank=True, null=True)
+    position = models.CharField(max_length=20, choices=POSITION_CHOICES, default='other')
+    phone = models.CharField(max_length=25, blank=True, null=True)
+    salary = models.IntegerField(blank=True, null=True)
+    hired_date = models.DateField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Staff'
+        verbose_name_plural = 'Staff'
+
+    def __str__(self):
+        return f"{self.name} - {self.get_position_display()}"
+
+
+class StaffAttendance(models.Model):
+    STATUS_CHOICES = (
+        ('present', 'Keldi'),
+        ('absent', 'Kelmadi'),
+        ('late', 'Kech keldi'),
+        ('sick', 'Kasal'),
+    )
+    staff = models.ForeignKey(Staff, on_delete=models.CASCADE, related_name='attendance')
+    date = models.DateField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='present')
+    note = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('staff', 'date')
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"{self.staff.name} - {self.date} - {self.status}"
