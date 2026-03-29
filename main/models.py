@@ -10,7 +10,13 @@ class User(AbstractUser):
         ('sardor', 'sardor'),
     )
     role = models.CharField(choices=ROLE_CHOICES, max_length=20)
-    email = models.EmailField(blank=True, null=True, unique=True)
+    email = models.EmailField(blank=True, null=True, unique=True, default=None)
+
+    def save(self, *args, **kwargs):
+        # Bo'sh email string ni None ga o'girish (unique constraint uchun)
+        if self.email == '':
+            self.email = None
+        super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = 'User'
@@ -50,6 +56,8 @@ class University(models.Model):
     description = models.TextField(blank=True, null=True)
     contact = models.TextField(blank=True, null=True)
     logo = models.ImageField(upload_to='logos/', blank=True, null=True)
+    latitude = models.FloatField(blank=True, null=True)
+    longitude = models.FloatField(blank=True, null=True)
 
     def __str__(self):
         return self.name

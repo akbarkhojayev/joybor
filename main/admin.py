@@ -12,10 +12,36 @@ class UserAdmin(BaseUserAdmin):
     list_filter = ['role', 'is_active']
     search_fields = ['username', 'email']
 
-    # Parol va boshqa maydonlar
     fieldsets = BaseUserAdmin.fieldsets + (
         ('Role info', {'fields': ('role',)}),
     )
+
+    def save_model(self, request, obj, form, change):
+        # Bo'sh email ni None ga o'girish (unique constraint xatosini oldini olish)
+        if obj.email == '':
+            obj.email = None
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(Complaint)
+class ComplaintAdmin(admin.ModelAdmin):
+    list_display = ['student', 'category', 'title', 'status', 'created_at']
+    list_filter = ['status', 'category', 'dormitory']
+    search_fields = ['title', 'student__name']
+
+
+@admin.register(Staff)
+class StaffAdmin(admin.ModelAdmin):
+    list_display = ['name', 'last_name', 'position', 'dormitory', 'salary', 'is_active']
+    list_filter = ['position', 'is_active', 'dormitory']
+    search_fields = ['name', 'last_name', 'phone']
+
+
+@admin.register(StaffAttendance)
+class StaffAttendanceAdmin(admin.ModelAdmin):
+    list_display = ['staff', 'date', 'status']
+    list_filter = ['status', 'date']
+    search_fields = ['staff__name']
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):

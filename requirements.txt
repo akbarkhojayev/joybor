@@ -7,3 +7,4 @@ drf-yasg==1.21.8
 Pillow==11.0.0
 google-auth==2.29.0
 requests==2.32.3
+openpyxl==3.1.2

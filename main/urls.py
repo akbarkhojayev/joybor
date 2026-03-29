@@ -6,8 +6,7 @@ urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
     path('me/', CurrentUserView.as_view(), name='current-user'),
     path('check-username/', CheckUsernameView.as_view(), name='check-username'),
-    path('auth/google/', GoogleLoginView.as_view(), name='google-login'),
-    path('auth/google/register/', GoogleRegisterView.as_view(), name='google-register'),
+    path('auth/google/', GoogleLoginView.as_view(), name='google-auth'),
     
     # General Stats
     path('stats/', GeneralStatsView.as_view(), name='general-stats'),
@@ -169,5 +168,9 @@ urlpatterns = [
     # Attendance full session (sardor uchun)
     path('attendance-sessions/full-create/', AttendanceSessionFullCreateView.as_view(), name='attendance-session-full-create'),
     path('attendance-records/<int:pk>/update/', AttendanceRecordUpdateView.as_view(), name='attendance-record-update'),
+
+    # Excel Export
+    path('export/students/', ExportStudentsExcelView.as_view(), name='export-students'),
+    path('export/payments/', ExportPaymentsExcelView.as_view(), name='export-payments'),
 
 ]

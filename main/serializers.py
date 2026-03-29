@@ -338,62 +338,51 @@ class DormitorySerializer(serializers.ModelSerializer):
         fields = '__all__'
     
     def get_room_statistics(self, obj):
-        """Yotoqxona xonalari va bo'sh joylar statistikasi"""
-        from django.db.models import Sum
-        
-        # Yotoqxonaga tegishli barcha xonalar
+        """Yotoqxona xonalari va bo'sh joylar statistikasi (real Student soni)"""
+        from django.db.models import Count
+
         rooms = Room.objects.filter(floor__dormitory=obj)
-        
-        # Umumiy statistika
-        total_rooms = rooms.count()
-        total_capacity = rooms.aggregate(Sum('capacity'))['capacity__sum'] or 0
-        total_occupied = rooms.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
-        total_free = total_capacity - total_occupied
-        
-        # Erkaklar uchun
-        male_rooms = rooms.filter(gender='male')
-        male_capacity = male_rooms.aggregate(Sum('capacity'))['capacity__sum'] or 0
-        male_occupied = male_rooms.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
-        male_free = male_capacity - male_occupied
-        
-        # Ayollar uchun
-        female_rooms = rooms.filter(gender='female')
-        female_capacity = female_rooms.aggregate(Sum('capacity'))['capacity__sum'] or 0
-        female_occupied = female_rooms.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
-        female_free = female_capacity - female_occupied
-        
-        # Status bo'yicha
-        available_rooms = rooms.filter(status='AVAILABLE').count()
-        partially_occupied_rooms = rooms.filter(status='PARTIALLY_OCCUPIED').count()
-        fully_occupied_rooms = rooms.filter(status='FULLY_OCCUPIED').count()
-        
+        room_ids = list(rooms.values_list('id', flat=True))
+
+        # Har bir xona uchun faol talabalar soni (real)
+        occ_qs = (
+            Student.objects.filter(room_id__in=room_ids, is_active=True)
+            .values('room_id')
+            .annotate(cnt=Count('id'))
+        )
+        occ_map = {r['room_id']: r['cnt'] for r in occ_qs}
+
+        def stats(room_qs):
+            ids = list(room_qs.values_list('id', flat=True))
+            cap = sum(r.capacity or 0 for r in room_qs)
+            occ = sum(occ_map.get(i, 0) for i in ids)
+            free = max(cap - occ, 0)
+            rate = round(occ / cap * 100, 1) if cap > 0 else 0.0
+            return room_qs.count(), cap, occ, free, rate
+
+        t_cnt, t_cap, t_occ, t_free, t_rate = stats(rooms)
+        m_rooms = rooms.filter(gender='male')
+        f_rooms = rooms.filter(gender='female')
+        m_cnt, m_cap, m_occ, m_free, m_rate = stats(m_rooms)
+        f_cnt, f_cap, f_occ, f_free, f_rate = stats(f_rooms)
+
+        # Status real hisoblash
+        available = partially = fully = 0
+        for r in rooms:
+            occ = occ_map.get(r.id, 0)
+            cap = r.capacity or 0
+            if occ == 0:
+                available += 1
+            elif cap > 0 and occ >= cap:
+                fully += 1
+            else:
+                partially += 1
+
         return {
-            'total': {
-                'rooms': total_rooms,
-                'capacity': total_capacity,
-                'occupied': total_occupied,
-                'free': total_free,
-                'occupancy_rate': round((total_occupied / total_capacity * 100) if total_capacity > 0 else 0, 1)
-            },
-            'male': {
-                'rooms': male_rooms.count(),
-                'capacity': male_capacity,
-                'occupied': male_occupied,
-                'free': male_free,
-                'occupancy_rate': round((male_occupied / male_capacity * 100) if male_capacity > 0 else 0, 1)
-            },
-            'female': {
-                'rooms': female_rooms.count(),
-                'capacity': female_capacity,
-                'occupied': female_occupied,
-                'free': female_free,
-                'occupancy_rate': round((female_occupied / female_capacity * 100) if female_capacity > 0 else 0, 1)
-            },
-            'by_status': {
-                'available': available_rooms,
-                'partially_occupied': partially_occupied_rooms,
-                'fully_occupied': fully_occupied_rooms
-            }
+            'total':  {'rooms': t_cnt, 'capacity': t_cap, 'occupied': t_occ, 'free': t_free, 'occupancy_rate': t_rate},
+            'male':   {'rooms': m_cnt, 'capacity': m_cap, 'occupied': m_occ, 'free': m_free, 'occupancy_rate': m_rate},
+            'female': {'rooms': f_cnt, 'capacity': f_cap, 'occupied': f_occ, 'free': f_free, 'occupancy_rate': f_rate},
+            'by_status': {'available': available, 'partially_occupied': partially, 'fully_occupied': fully},
         }
 
 
@@ -498,11 +487,14 @@ class StudentDashboardSerializer(serializers.ModelSerializer):
     
     def get_room_info(self, obj):
         if obj.room:
+            real_occ = Student.objects.filter(room=obj.room, is_active=True).count()
+            cap = obj.room.capacity or 0
             return {
                 'id': obj.room.id,
                 'name': obj.room.name,
-                'capacity': obj.room.capacity,
-                'current_occupancy': obj.room.current_occupancy,
+                'capacity': cap,
+                'current_occupancy': real_occ,
+                'free': max(cap - real_occ, 0),
                 'status': obj.room.status,
             }
         return None
@@ -762,8 +754,14 @@ class AssignRoomSerializer(serializers.Serializer):
                 "current_floor": instance.floor.name if instance.floor else None
             })
         
-        # Talabaning jinsi va xona jinsi mos kelishini tekshirish
+        # Talabaning jinsi va xona/qavat jinsi mos kelishini tekshirish
         student_gender = 'male' if instance.gender == 'Erkak' else 'female'
+        
+        if floor.gender != student_gender:
+            raise serializers.ValidationError({
+                "error": f"Talaba jinsi ({instance.gender}) va qavat jinsi ({floor.gender}) mos kelmaydi"
+            })
+        
         if room.gender != student_gender:
             raise serializers.ValidationError({
                 "error": f"Talaba jinsi ({instance.gender}) va xona jinsi ({room.gender}) mos kelmaydi"
@@ -930,6 +928,12 @@ class TransferRoomSerializer(serializers.Serializer):
 
         # Jins tekshiruvi
         student_gender = 'male' if instance.gender == 'Erkak' else 'female'
+        
+        if new_floor.gender != student_gender:
+            raise serializers.ValidationError({
+                "error": f"Talaba jinsi ({instance.gender}) va qavat jinsi ({new_floor.gender}) mos kelmaydi"
+            })
+        
         if new_room.gender != student_gender:
             raise serializers.ValidationError({
                 "error": f"Talaba jinsi ({instance.gender}) va xona jinsi ({new_room.gender}) mos kelmaydi"
@@ -1025,3 +1029,7 @@ class AttendanceSessionCreateSerializer(serializers.ModelSerializer):
                 )
 
         return session
+
+
+class CheckUsernameSerializer(serializers.Serializer):
+    username = serializers.CharField(help_text="Tekshiriladigan username")

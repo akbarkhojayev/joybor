@@ -12,6 +12,7 @@ from .permisssions import *
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.exceptions import PermissionDenied
 from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 
 # ==================== AUTH VIEWS ====================
@@ -30,9 +31,9 @@ class RegisterView(generics.CreateAPIView):
 
 
 class GoogleLoginView(APIView):
-    """Google OAuth2 orqali faqat LOGIN"""
+    """Google OAuth2 - login yoki register (avtomatik)"""
     permission_classes = [AllowAny]
-    serializer_class = GoogleTokenSerializer  # Swagger uchun
+    serializer_class = GoogleTokenSerializer
 
     @swagger_auto_schema(request_body=GoogleTokenSerializer)
     def post(self, request):
@@ -41,7 +42,6 @@ class GoogleLoginView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         token = serializer.validated_data['token']
-
         google_user = self._verify_google_token(token)
         if not google_user:
             return Response({"error": "Noto'g'ri yoki muddati o'tgan Google token"}, status=status.HTTP_400_BAD_REQUEST)
@@ -50,22 +50,31 @@ class GoogleLoginView(APIView):
         if not email:
             return Response({"error": "Google akkauntda email topilmadi"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Faqat mavjud userni topish
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        # Mavjud userni topish
         try:
             user = User.objects.get(email=email)
+            is_new = False
         except User.DoesNotExist:
-            return Response({
-                "error": "Bu Google akkaunt bilan ro'yxatdan o'tilmagan. Avval ro'yxatdan o'ting.",
-                "email": email,
-                "is_registered": False,
-            }, status=status.HTTP_404_NOT_FOUND)
+            # Yangi student yaratish
+            username = self._generate_username(email)
+            user = User.objects.create(
+                email=email,
+                username=username,
+                first_name=google_user.get('given_name', ''),
+                last_name=google_user.get('family_name', ''),
+                role='student',
+            )
+            user.set_unusable_password()
+            user.save()
+            UserProfile.objects.create(user=user)
+            is_new = True
 
-        from rest_framework_simplejwt.tokens import RefreshToken
         refresh = RefreshToken.for_user(user)
-
         return Response({
-            "message": "Muvaffaqiyatli kirish",
-            "is_new_user": False,
+            "is_new_user": is_new,
+            "message": "Ro'yxatdan o'tdingiz" if is_new else "Muvaffaqiyatli kirish",
             "access": str(refresh.access_token),
             "refresh": str(refresh),
             "user": {
@@ -76,19 +85,14 @@ class GoogleLoginView(APIView):
                 "last_name": user.last_name,
                 "role": user.role,
             }
-        }, status=status.HTTP_200_OK)
+        }, status=status.HTTP_201_CREATED if is_new else status.HTTP_200_OK)
 
     def _verify_google_token(self, token):
         import requests as req
         from django.conf import settings
 
-        # ID token tekshirish
         try:
-            resp = req.get(
-                'https://oauth2.googleapis.com/tokeninfo',
-                params={'id_token': token},
-                timeout=10
-            )
+            resp = req.get('https://oauth2.googleapis.com/tokeninfo', params={'id_token': token}, timeout=10)
             if resp.status_code == 200:
                 data = resp.json()
                 client_id = getattr(settings, 'GOOGLE_CLIENT_ID', '')
@@ -98,19 +102,25 @@ class GoogleLoginView(APIView):
         except Exception:
             pass
 
-        # Access token tekshirish (fallback)
         try:
-            resp = req.get(
-                'https://www.googleapis.com/oauth2/v3/userinfo',
-                headers={'Authorization': f'Bearer {token}'},
-                timeout=10
-            )
+            resp = req.get('https://www.googleapis.com/oauth2/v3/userinfo',
+                           headers={'Authorization': f'Bearer {token}'}, timeout=10)
             if resp.status_code == 200:
                 return resp.json()
         except Exception:
             pass
 
         return None
+
+    def _generate_username(self, email):
+        import re
+        base = re.sub(r'[^a-zA-Z0-9]', '_', email.split('@')[0])
+        username = base
+        counter = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{base}_{counter}"
+            counter += 1
+        return username
 
 
 class GoogleRegisterView(APIView):
@@ -219,25 +229,37 @@ class GoogleRegisterView(APIView):
 
 
 class CheckUsernameView(APIView):
-    """Username mavjudligini tekshirish"""
+    """Username mavjudligini tekshirish - GET yoki POST"""
     permission_classes = [AllowAny]
 
-    def get(self, request):
-        username = request.query_params.get('username', '').strip()
-
+    def _check(self, username):
         if not username:
-            return Response(
-                {"error": "username parametri kiritilmagan"},
+            return None, Response(
+                {"error": "username kiritilmagan"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         exists = User.objects.filter(username__iexact=username).exists()
-
         return Response({
             "username": username,
             "available": not exists,
-            "message": "Bu username band" if exists else "Bu username mavjud emas"
-        })
+            "message": "Bu username band" if exists else "Bu username bo'sh"
+        }), None
+
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter('username', openapi.IN_QUERY, type=openapi.TYPE_STRING, description="Tekshiriladigan username")
+        ]
+    )
+    def get(self, request):
+        username = request.query_params.get('username', '').strip()
+        result, err = self._check(username)
+        return err or result
+
+    @swagger_auto_schema(request_body=CheckUsernameSerializer)
+    def post(self, request):
+        username = request.data.get('username', '').strip()
+        result, err = self._check(username)
+        return err or result
 
 
 class CurrentUserView(generics.RetrieveUpdateAPIView):
@@ -363,7 +385,6 @@ class AmenityDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Amenity.objects.all()
     serializer_class = AmenitySerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
-
 
 # ==================== DORMITORY VIEWS ====================
 class DormitoryListView(generics.ListAPIView):
@@ -1009,12 +1030,12 @@ class AttendanceSessionListView(generics.ListAPIView):
 class AttendanceSessionCreateView(generics.CreateAPIView):
     queryset = AttendanceSession.objects.all()
     serializer_class = AttendanceSessionSerializer
-    permission_classes = [IsFloorLeader]
+    permission_classes = [IsAuthenticated]
 
 
 class AttendanceSessionDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = AttendanceSessionSerializer
-    permission_classes = [IsFloorLeader]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
@@ -1033,7 +1054,7 @@ class AttendanceSessionDetailView(generics.RetrieveUpdateDestroyAPIView):
 class AttendanceRecordListView(generics.ListCreateAPIView):
     queryset = AttendanceRecord.objects.all()
     serializer_class = AttendanceRecordSerializer
-    permission_classes = [IsFloorLeader]
+    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['session', 'student', 'status']
 
@@ -1041,7 +1062,7 @@ class AttendanceRecordListView(generics.ListCreateAPIView):
 class AttendanceRecordDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = AttendanceRecord.objects.all()
     serializer_class = AttendanceRecordSerializer
-    permission_classes = [IsFloorLeader]
+    permission_classes = [IsAuthenticated]
 
 
 # ==================== COLLECTION VIEWS ====================
@@ -1806,13 +1827,13 @@ class GeneralStatsView(APIView):
         approved_applications = Application.objects.filter(status='Approved').count()
         rejected_applications = Application.objects.filter(status='Rejected').count()
 
-        # Xonalar statistikasi (Django ORM aggregate ishlatish)
-        from django.db.models import Sum
-        
+        # Xonalar statistikasi (real Student soni bilan)
+        from django.db.models import Sum, Count
+
         total_rooms = Room.objects.count()
         total_capacity = Room.objects.aggregate(Sum('capacity'))['capacity__sum'] or 0
-        total_occupied = Room.objects.aggregate(Sum('current_occupancy'))['current_occupancy__sum'] or 0
-        total_free = total_capacity - total_occupied
+        total_occupied = Student.objects.filter(is_active=True, room__isnull=False).count()
+        total_free = max(total_capacity - total_occupied, 0)
 
         # Viloyatlar statistikasi
         total_provinces = Province.objects.count()
@@ -2102,8 +2123,8 @@ class FloorLeaderDashboardView(APIView):
                     {
                         "room": r.name,
                         "capacity": r.capacity,
-                        "occupied": r.current_occupancy,
-                        "free": r.free_beds,
+                        "occupied": Student.objects.filter(room=r, is_active=True).count(),
+                        "free": max((r.capacity or 0) - Student.objects.filter(room=r, is_active=True).count(), 0),
                     }
                     for r in floor.room_set.all()
                 ]
@@ -2184,3 +2205,243 @@ class AttendanceRecordUpdateView(generics.UpdateAPIView):
         if floor_leader:
             return AttendanceRecord.objects.filter(session__floor=floor_leader.floor)
         return AttendanceRecord.objects.none()
+
+
+# ==================== EXCEL EXPORT VIEWS ====================
+class ExportStudentsExcelView(APIView):
+    """Talabalar ro'yxatini Excel ga export qilish"""
+    permission_classes = [IsAdminOrDormitoryAdmin]
+
+    def get(self, request):
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from django.http import HttpResponse
+
+        user = request.user
+
+        # Queryset
+        if user.is_superuser:
+            students = Student.objects.select_related(
+                'dormitory', 'floor', 'room', 'province', 'district'
+            ).all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            dormitory = Dormitory.objects.filter(admin=user).first()
+            if not dormitory:
+                return Response({"error": "Yotoqxona topilmadi"}, status=404)
+            students = Student.objects.select_related(
+                'dormitory', 'floor', 'room', 'province', 'district'
+            ).filter(dormitory=dormitory)
+        else:
+            return Response({"error": "Ruxsat yo'q"}, status=403)
+
+        # Filter parametrlari
+        floor_id = request.query_params.get('floor')
+        room_id = request.query_params.get('room')
+        gender = request.query_params.get('gender')
+        course = request.query_params.get('course')
+        is_active = request.query_params.get('is_active')
+
+        if floor_id:
+            students = students.filter(floor_id=floor_id)
+        if room_id:
+            students = students.filter(room_id=room_id)
+        if gender:
+            students = students.filter(gender=gender)
+        if course:
+            students = students.filter(course=course)
+        if is_active is not None:
+            students = students.filter(is_active=is_active.lower() == 'true')
+
+        # Excel yaratish
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Talabalar"
+
+        # Header style
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill(start_color="2E75B6", end_color="2E75B6", fill_type="solid")
+        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        thin = Side(style='thin', color="000000")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        headers = [
+            "№", "Ism", "Familiya", "Otasining ismi", "Jinsi", "Kurs",
+            "Fakultet", "Guruh", "Telefon", "Pasport",
+            "Viloyat", "Tuman", "Yotoqxona", "Qavat", "Xona",
+            "Holati", "Joylashuv holati", "Faolmi"
+        ]
+
+        col_widths = [4, 15, 15, 15, 8, 8, 20, 12, 15, 12, 15, 15, 20, 12, 10, 15, 18, 8]
+
+        for col_num, (header, width) in enumerate(zip(headers, col_widths), 1):
+            cell = ws.cell(row=1, column=col_num, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = border
+            ws.column_dimensions[cell.column_letter].width = width
+
+        ws.row_dimensions[1].height = 30
+
+        # Ma'lumotlar
+        row_fill_even = PatternFill(start_color="DEEAF1", end_color="DEEAF1", fill_type="solid")
+        data_align = Alignment(horizontal="left", vertical="center")
+
+        for idx, student in enumerate(students, 1):
+            row = idx + 1
+            fill = row_fill_even if idx % 2 == 0 else None
+            values = [
+                idx,
+                student.name or '',
+                student.last_name or '',
+                student.middle_name or '',
+                student.gender or '',
+                student.course or '',
+                student.faculty or '',
+                student.group or '',
+                student.phone or '',
+                student.passport or '',
+                student.province.name if student.province else '',
+                student.district.name if student.district else '',
+                student.dormitory.name if student.dormitory else '',
+                student.floor.name if student.floor else '',
+                student.room.name if student.room else '',
+                student.status or '',
+                student.placement_status or '',
+                'Ha' if student.is_active else "Yo'q",
+            ]
+            for col_num, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col_num, value=value)
+                cell.alignment = data_align
+                cell.border = border
+                if fill:
+                    cell.fill = fill
+
+        ws.freeze_panes = "A2"
+
+        # Response
+        response = HttpResponse(
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename="talabalar.xlsx"'
+        wb.save(response)
+        return response
+
+
+class ExportPaymentsExcelView(APIView):
+    """To'lovlar jadvalini Excel ga export qilish"""
+    permission_classes = [IsAdminOrDormitoryAdmin]
+
+    def get(self, request):
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from django.http import HttpResponse
+
+        user = request.user
+
+        if user.is_superuser:
+            payments = Payment.objects.select_related('student', 'dormitory').all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            dormitory = Dormitory.objects.filter(admin=user).first()
+            if not dormitory:
+                return Response({"error": "Yotoqxona topilmadi"}, status=404)
+            payments = Payment.objects.select_related('student', 'dormitory').filter(dormitory=dormitory)
+        else:
+            return Response({"error": "Ruxsat yo'q"}, status=403)
+
+        # Filter
+        student_id = request.query_params.get('student')
+        pay_status = request.query_params.get('status')
+        method = request.query_params.get('method')
+        year = request.query_params.get('year')
+        month = request.query_params.get('month')
+
+        if student_id:
+            payments = payments.filter(student_id=student_id)
+        if pay_status:
+            payments = payments.filter(status=pay_status)
+        if method:
+            payments = payments.filter(method=method)
+        if year:
+            payments = payments.filter(paid_date__year=year)
+        if month:
+            payments = payments.filter(paid_date__month=month)
+
+        payments = payments.order_by('-paid_date')
+
+        # Excel
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "To'lovlar"
+
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill(start_color="375623", end_color="375623", fill_type="solid")
+        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        thin = Side(style='thin', color="000000")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        headers = [
+            "№", "Talaba ismi", "Familiya", "Xona", "Qavat",
+            "Yotoqxona", "Summa (so'm)", "To'lov sanasi",
+            "Amal qilish muddati", "Usul", "Holati", "Izoh"
+        ]
+        col_widths = [4, 15, 15, 10, 10, 20, 15, 18, 18, 10, 12, 25]
+
+        for col_num, (header, width) in enumerate(zip(headers, col_widths), 1):
+            cell = ws.cell(row=1, column=col_num, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = border
+            ws.column_dimensions[cell.column_letter].width = width
+
+        ws.row_dimensions[1].height = 30
+
+        green_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+        red_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+        data_align = Alignment(horizontal="left", vertical="center")
+
+        total_amount = 0
+        for idx, payment in enumerate(payments, 1):
+            row = idx + 1
+            paid_date = payment.paid_date.strftime('%Y-%m-%d %H:%M') if payment.paid_date else ''
+            valid_until = str(payment.valid_until) if payment.valid_until else ''
+            amount = payment.amount or 0
+            if payment.status == 'APPROVED':
+                total_amount += amount
+
+            values = [
+                idx,
+                payment.student.name if payment.student else '',
+                payment.student.last_name if payment.student else '',
+                payment.student.room.name if payment.student and payment.student.room else '',
+                payment.student.floor.name if payment.student and payment.student.floor else '',
+                payment.dormitory.name if payment.dormitory else '',
+                amount,
+                paid_date,
+                valid_until,
+                payment.method or '',
+                payment.status or '',
+                payment.comment or '',
+            ]
+            row_fill = green_fill if payment.status == 'APPROVED' else red_fill
+            for col_num, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col_num, value=value)
+                cell.alignment = data_align
+                cell.border = border
+                cell.fill = row_fill
+
+        # Jami qator
+        total_row = payments.count() + 2
+        ws.cell(row=total_row, column=6, value="JAMI:").font = Font(bold=True)
+        total_cell = ws.cell(row=total_row, column=7, value=total_amount)
+        total_cell.font = Font(bold=True, color="375623")
+
+        ws.freeze_panes = "A2"
+
+        response = HttpResponse(
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename="tolovlar.xlsx"'
+        wb.save(response)
+        return response
