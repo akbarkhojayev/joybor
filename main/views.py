@@ -566,18 +566,24 @@ class RoomListView(generics.ListCreateAPIView):
     permission_classes = [IsAdminOrDormitoryAdmin]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['floor', 'status', 'gender']
-    
+
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Room.objects.none()
-        
         user = self.request.user
         if user.is_superuser:
             return Room.objects.all()
         elif hasattr(user, 'role') and user.role == 'admin':
-            # Admin faqat o'z yotoqxonasining xonalarini ko'radi
             return Room.objects.filter(floor__dormitory__admin=user)
         return Room.objects.none()
+
+    def perform_create(self, serializer):
+        # Xona jinsi floor jinsidan avtomatik olinadi
+        floor = serializer.validated_data.get('floor')
+        if floor and 'gender' not in self.request.data:
+            serializer.save(gender=floor.gender)
+        else:
+            serializer.save()
 
 
 class RoomDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -1580,7 +1586,6 @@ class AdminDashboardStatsView(APIView):
         }
 
         # ── Xonalar (real Student soni bilan) ─────────────────────
-        # current_occupancy ni DB dan emas, real Student queryset dan olamiz
         room_ids = list(rooms.values_list('id', flat=True))
 
         # Har bir xona uchun faol talabalar soni
@@ -1598,14 +1603,16 @@ class AdminDashboardStatsView(APIView):
         male_rooms   = rooms.filter(gender='male')
         female_rooms = rooms.filter(gender='female')
 
-        male_room_ids   = list(male_rooms.values_list('id', flat=True))
-        female_room_ids = list(female_rooms.values_list('id', flat=True))
-
         male_capacity   = male_rooms.aggregate(s=Sum('capacity'))['s'] or 0
         female_capacity = female_rooms.aggregate(s=Sum('capacity'))['s'] or 0
 
-        male_occupied   = sum(v for k, v in occupied_map.items() if k in male_room_ids)
-        female_occupied = sum(v for k, v in occupied_map.items() if k in female_room_ids)
+        # Talaba jinsi bo'yicha hisoblash (room.gender ga emas, student.gender ga qarab)
+        male_occupied = students.filter(
+            is_active=True, gender='Erkak', room_id__isnull=False
+        ).count()
+        female_occupied = students.filter(
+            is_active=True, gender='Ayol', room_id__isnull=False
+        ).count()
         male_free   = max(male_capacity - male_occupied, 0)
         female_free = max(female_capacity - female_occupied, 0)
 

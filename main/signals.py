@@ -75,6 +75,7 @@ def handle_application_approval(sender, instance, created, **kwargs):
             passport=instance.passport,
             group=instance.group,
             course=instance.course,
+            gender=instance.gender,
             phone=instance.phone,
             picture=instance.user_image if hasattr(instance, 'user_image') else None,
             passport_image_first=instance.passport_image_first,
@@ -82,7 +83,7 @@ def handle_application_approval(sender, instance, created, **kwargs):
             document=instance.document,
             status='Tasdiqlandi',
             placement_status='Qabul qilindi',
-            is_active=False  # Xona biriktirilmagan
+            is_active=False
         )
         
         # Foydalanuvchiga bildirishnoma yuborish

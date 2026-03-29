@@ -344,7 +344,6 @@ class DormitorySerializer(serializers.ModelSerializer):
         rooms = Room.objects.filter(floor__dormitory=obj)
         room_ids = list(rooms.values_list('id', flat=True))
 
-        # Har bir xona uchun faol talabalar soni (real)
         occ_qs = (
             Student.objects.filter(room_id__in=room_ids, is_active=True)
             .values('room_id')
@@ -352,19 +351,25 @@ class DormitorySerializer(serializers.ModelSerializer):
         )
         occ_map = {r['room_id']: r['cnt'] for r in occ_qs}
 
-        def stats(room_qs):
-            ids = list(room_qs.values_list('id', flat=True))
-            cap = sum(r.capacity or 0 for r in room_qs)
-            occ = sum(occ_map.get(i, 0) for i in ids)
-            free = max(cap - occ, 0)
-            rate = round(occ / cap * 100, 1) if cap > 0 else 0.0
-            return room_qs.count(), cap, occ, free, rate
-
-        t_cnt, t_cap, t_occ, t_free, t_rate = stats(rooms)
         m_rooms = rooms.filter(gender='male')
         f_rooms = rooms.filter(gender='female')
-        m_cnt, m_cap, m_occ, m_free, m_rate = stats(m_rooms)
-        f_cnt, f_cap, f_occ, f_free, f_rate = stats(f_rooms)
+
+        t_cap = sum(r.capacity or 0 for r in rooms)
+        m_cap = sum(r.capacity or 0 for r in m_rooms)
+        f_cap = sum(r.capacity or 0 for r in f_rooms)
+
+        t_occ = sum(occ_map.values())
+
+        # Talaba jinsi bo'yicha (Student.gender ga qarab)
+        m_occ = Student.objects.filter(
+            room_id__in=room_ids, is_active=True, gender='Erkak'
+        ).count()
+        f_occ = Student.objects.filter(
+            room_id__in=room_ids, is_active=True, gender='Ayol'
+        ).count()
+
+        def rate(occ, cap):
+            return round(occ / cap * 100, 1) if cap > 0 else 0.0
 
         # Status real hisoblash
         available = partially = fully = 0
@@ -379,9 +384,9 @@ class DormitorySerializer(serializers.ModelSerializer):
                 partially += 1
 
         return {
-            'total':  {'rooms': t_cnt, 'capacity': t_cap, 'occupied': t_occ, 'free': t_free, 'occupancy_rate': t_rate},
-            'male':   {'rooms': m_cnt, 'capacity': m_cap, 'occupied': m_occ, 'free': m_free, 'occupancy_rate': m_rate},
-            'female': {'rooms': f_cnt, 'capacity': f_cap, 'occupied': f_occ, 'free': f_free, 'occupancy_rate': f_rate},
+            'total':  {'rooms': rooms.count(), 'capacity': t_cap, 'occupied': t_occ, 'free': max(t_cap - t_occ, 0), 'occupancy_rate': rate(t_occ, t_cap)},
+            'male':   {'rooms': m_rooms.count(), 'capacity': m_cap, 'occupied': m_occ, 'free': max(m_cap - m_occ, 0), 'occupancy_rate': rate(m_occ, m_cap)},
+            'female': {'rooms': f_rooms.count(), 'capacity': f_cap, 'occupied': f_occ, 'free': max(f_cap - f_occ, 0), 'occupancy_rate': rate(f_occ, f_cap)},
             'by_status': {'available': available, 'partially_occupied': partially, 'fully_occupied': fully},
         }
 
@@ -531,11 +536,16 @@ class ApplicationSerializer(serializers.ModelSerializer):
     dormitory_name = serializers.CharField(source='dormitory.name', read_only=True)
     province_name = serializers.CharField(source='province.name', read_only=True)
     district_name = serializers.CharField(source='district.name', read_only=True)
-    
+    gender = serializers.ChoiceField(
+        choices=[('Erkak', 'Erkak'), ('Ayol', 'Ayol')],
+        required=True,
+        help_text="Erkak yoki Ayol"
+    )
+
     class Meta:
         model = Application
         fields = '__all__'
-        read_only_fields = ('status','admin_comment')
+        read_only_fields = ('status', 'admin_comment', 'user')
 
 class ApplicationAdminUpdateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -877,7 +887,6 @@ class ComplaintSerializer(serializers.ModelSerializer):
 
 class StaffSerializer(serializers.ModelSerializer):
     dormitory_name = serializers.CharField(source='dormitory.name', read_only=True)
-    position_display = serializers.CharField(source='get_position_display', read_only=True)
 
     class Meta:
         model = Staff

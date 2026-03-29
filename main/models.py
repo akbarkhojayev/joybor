@@ -253,6 +253,11 @@ class Application(models.Model):
     group = models.CharField(max_length=120, blank=True, null=True)
     phone = models.CharField(blank=True, null=True, max_length=25)
     passport = models.CharField(max_length=9, unique=True, blank=True, null=True)
+    gender = models.CharField(
+        max_length=10,
+        choices=(('Erkak', 'Erkak'), ('Ayol', 'Ayol')),
+        default='Erkak'
+    )
     user_image = models.ImageField(upload_to='application_image/', blank=True, null=True)
     document = models.FileField(upload_to='application_documents/', blank=True, null=True)
     status = models.CharField(max_length=120, choices=STATUS_CHOICES, default='Pending')
@@ -529,18 +534,10 @@ class Complaint(models.Model):
 
 
 class Staff(models.Model):
-    POSITION_CHOICES = (
-        ('cleaner', 'Tozalovchi'),
-        ('security', 'Qorovul'),
-        ('cook', 'Oshpaz'),
-        ('electrician', 'Elektrik'),
-        ('plumber', 'Santexnik'),
-        ('other', 'Boshqa'),
-    )
     dormitory = models.ForeignKey(Dormitory, on_delete=models.CASCADE, related_name='staff')
     name = models.CharField(max_length=120)
     last_name = models.CharField(max_length=120, blank=True, null=True)
-    position = models.CharField(max_length=20, choices=POSITION_CHOICES, default='other')
+    position = models.CharField(max_length=20,blank=True, null=True)
     phone = models.CharField(max_length=25, blank=True, null=True)
     salary = models.IntegerField(blank=True, null=True)
     hired_date = models.DateField(blank=True, null=True)
@@ -552,7 +549,7 @@ class Staff(models.Model):
         verbose_name_plural = 'Staff'
 
     def __str__(self):
-        return f"{self.name} - {self.get_position_display()}"
+        return f"{self.name} - {self.position or ''}"
 
 
 class StaffAttendance(models.Model):
