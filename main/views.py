@@ -526,7 +526,6 @@ class FloorListView(generics.ListCreateAPIView):
         if user.is_superuser:
             return Floor.objects.all()
         elif hasattr(user, 'role') and user.role == 'admin':
-            # Admin faqat o'z yotoqxonasining qavatlarini ko'radi
             return Floor.objects.filter(dormitory__admin=user)
         return Floor.objects.none()
 
@@ -650,6 +649,7 @@ class StudentCreateView(generics.CreateAPIView):
 class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = StudentSerializer
     permission_classes = [IsAuthenticated]  # Hamma authenticated user ko'ra oladi
+    parser_classes = [MultiPartParser, FormParser]
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
@@ -2163,22 +2163,25 @@ class AttendanceSessionFullCreateView(generics.CreateAPIView):
     serializer_class = AttendanceSessionCreateSerializer
     permission_classes = [IsFloorLeader]
 
-    def perform_create(self, serializer):
-        user = self.request.user
+    @swagger_auto_schema(request_body=AttendanceSessionCreateSerializer)
+    def post(self, request, *args, **kwargs):
+        user = request.user
         try:
             floor_leader = FloorLeader.objects.get(user=user)
         except FloorLeader.DoesNotExist:
-            raise PermissionDenied("Siz qavat sardori emassiz")
-        serializer.save(leader=floor_leader, floor=floor_leader.floor)
+            return Response({"error": "Siz qavat sardori emassiz"}, status=status.HTTP_403_FORBIDDEN)
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        serializer = AttendanceSessionCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        session = serializer.instance
+
+        session = serializer.save(
+            floor=floor_leader.floor,
+            leader=floor_leader
+        )
+
         records = AttendanceRecord.objects.filter(session=session).select_related('student')
         return Response({
-            "message": "Davomat muvaffaqiyatli yaratildi",
+            "message": "Davomat muvaffaqiyatli saqlandi",
             "session_id": session.id,
             "date": str(session.date),
             "floor": session.floor.name,
@@ -2188,7 +2191,7 @@ class AttendanceSessionFullCreateView(generics.CreateAPIView):
             "records": [
                 {
                     "student_id": r.student.id,
-                    "student_name": f"{r.student.name} {r.student.last_name}",
+                    "student_name": f"{r.student.name} {r.student.last_name or ''}".strip(),
                     "status": r.status
                 }
                 for r in records

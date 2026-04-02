@@ -8,7 +8,7 @@ User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'password', 'role', 'email']
+        fields = ['id', 'username', 'password', 'role', 'email', 'phone', 'first_name', 'last_name']
         extra_kwargs = {'password': {'write_only': True}}
 
     def validate(self, attrs):
@@ -126,8 +126,8 @@ class UserMeSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
     last_name = serializers.CharField(source='user.last_name', required=False, allow_blank=True)
     role = serializers.CharField(source='user.role', read_only=True)
-    
-    # Talaba uchun qo'shimcha ma'lumotlar
+    user_phone = serializers.CharField(source='user.phone', required=False, allow_blank=True, allow_null=True)
+
     student_info = serializers.SerializerMethodField()
     recent_payments = serializers.SerializerMethodField()
     payment_summary = serializers.SerializerMethodField()
@@ -141,6 +141,7 @@ class UserMeSerializer(serializers.ModelSerializer):
             'first_name',
             'last_name',
             'role',
+            'user_phone',
             'image',
             'bio',
             'phone',
@@ -218,23 +219,23 @@ class UserMeSerializer(serializers.ModelSerializer):
             return None
     
     def update(self, instance, validated_data):
-        # User ma'lumotlarini yangilash
         user_data = validated_data.pop('user', {})
         user = instance.user
-        
+
         if 'email' in user_data:
             user.email = user_data['email']
         if 'first_name' in user_data:
             user.first_name = user_data['first_name']
         if 'last_name' in user_data:
             user.last_name = user_data['last_name']
+        if 'phone' in user_data:
+            user.phone = user_data['phone']
         user.save()
-        
-        # UserProfile ma'lumotlarini yangilash
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
-        
+
         return instance
 
 
@@ -244,7 +245,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['username', 'password', 'password2', 'email', 'role', 'first_name', 'last_name']
+        fields = ['username', 'password', 'password2','phone', 'email', 'role', 'first_name', 'last_name']
 
     def validate(self, attrs):
         if attrs['password'] != attrs['password2']:
@@ -657,10 +658,42 @@ class UnifiedNotificationSerializer(serializers.Serializer):
 class FloorLeaderSerializer(serializers.ModelSerializer):
     user_info = UserSerializer(source='user', read_only=True)
     floor_info = FloorSerializer(source='floor', read_only=True)
-    
+
+    username   = serializers.CharField(write_only=True, help_text="Sardor username")
+    password   = serializers.CharField(write_only=True, help_text="Sardor paroli")
+    first_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    last_name  = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    phone      = serializers.CharField(write_only=True, required=False, allow_blank=True, allow_null=True)
+
     class Meta:
         model = FloorLeader
-        fields = '__all__'
+        fields = ['id', 'floor', 'user_info', 'floor_info',
+                  'username', 'password', 'first_name', 'last_name', 'phone']
+        extra_kwargs = {'user': {'read_only': True}}
+
+    def validate_username(self, value):
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Bu username band")
+        return value
+
+    def create(self, validated_data):
+        username   = validated_data.pop('username')
+        password   = validated_data.pop('password')
+        first_name = validated_data.pop('first_name', '')
+        last_name  = validated_data.pop('last_name', '')
+        phone      = validated_data.pop('phone', None)
+
+        user = User.objects.create_user(
+            username=username,
+            password=password,
+            role='sardor',
+            first_name=first_name,
+            last_name=last_name,
+            phone=phone,
+        )
+        UserProfile.objects.create(user=user)
+
+        return FloorLeader.objects.create(user=user, **validated_data)
 
 
 class AttendanceRecordSerializer(serializers.ModelSerializer):
@@ -975,62 +1008,55 @@ class TransferRoomSerializer(serializers.Serializer):
         return instance
 
 
-class AttendanceSessionCreateSerializer(serializers.ModelSerializer):
-    """Sardor davomat sessiyasi yaratish + talabalarni avtomatik qo'shish"""
-    student_ids = serializers.ListField(
-        child=serializers.IntegerField(),
-        write_only=True,
-        required=False,
-        help_text="Davomat belgilanadigan talabalar ID lari (bo'sh qolsa qavatdagi barcha talabalar)"
-    )
-    records = serializers.ListField(
-        child=serializers.DictField(),
-        write_only=True,
-        required=False,
-        help_text="[{student_id: 1, status: 'in'}, ...] - har bir talaba uchun status"
+class AttendanceRecordInputSerializer(serializers.Serializer):
+    student_id = serializers.IntegerField(help_text="Talaba ID si")
+    status = serializers.ChoiceField(
+        choices=[('in', 'Keldi'), ('out', 'Kelmadi')],
+        default='in',
+        help_text="in = keldi, out = kelmadi"
     )
 
-    class Meta:
-        model = AttendanceSession
-        fields = ['id', 'date', 'floor', 'leader', 'student_ids', 'records']
-        read_only_fields = ['leader']
+
+class AttendanceSessionCreateSerializer(serializers.Serializer):
+    """Sardor davomat sessiyasi yaratish - faqat date va records kerak"""
+    date = serializers.DateField(
+        required=False,
+        help_text="Sana (bo'sh qolsa bugungi sana)"
+    )
+    records = AttendanceRecordInputSerializer(
+        many=True,
+        required=False,
+        help_text="Talabalar va statuslari. Bo'sh qolsa qavatdagi barcha talabalar 'in' bo'ladi"
+    )
 
     def create(self, validated_data):
-        student_ids = validated_data.pop('student_ids', [])
-        records_data = validated_data.pop('records', [])
+        from datetime import date as date_cls
+        floor = validated_data['floor']
+        leader = validated_data['leader']
+        day = validated_data.get('date') or date_cls.today()
+        records_data = validated_data.get('records', [])
 
-        session = AttendanceSession.objects.create(**validated_data)
+        # Sessiya yaratish
+        session, created = AttendanceSession.objects.get_or_create(
+            date=day,
+            floor=floor,
+            defaults={'leader': leader}
+        )
 
-        # records_data berilgan bo'lsa - ularni ishlatamiz
         if records_data:
             for rec in records_data:
                 try:
-                    student = Student.objects.get(id=rec['student_id'], is_active=True)
-                    AttendanceRecord.objects.get_or_create(
+                    student = Student.objects.get(id=rec['student_id'], is_active=True, floor=floor)
+                    AttendanceRecord.objects.update_or_create(
                         session=session,
                         student=student,
                         defaults={'status': rec.get('status', 'in')}
                     )
                 except Student.DoesNotExist:
                     pass
-        elif student_ids:
-            # student_ids berilgan bo'lsa - hammasi 'in' bilan
-            for sid in student_ids:
-                try:
-                    student = Student.objects.get(id=sid, is_active=True)
-                    AttendanceRecord.objects.get_or_create(
-                        session=session,
-                        student=student,
-                        defaults={'status': 'in'}
-                    )
-                except Student.DoesNotExist:
-                    pass
         else:
-            # Hech narsa berilmasa - qavatdagi barcha talabalar 'in'
-            students = Student.objects.filter(
-                floor=validated_data['floor'], is_active=True
-            )
-            for student in students:
+            # Barcha qavatdagi talabalar 'in'
+            for student in Student.objects.filter(floor=floor, is_active=True):
                 AttendanceRecord.objects.get_or_create(
                     session=session,
                     student=student,

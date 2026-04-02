@@ -11,6 +11,7 @@ class User(AbstractUser):
     )
     role = models.CharField(choices=ROLE_CHOICES, max_length=20)
     email = models.EmailField(blank=True, null=True, unique=True, default=None)
+    phone = models.CharField(blank=True, null=True, max_length=25)
 
     def save(self, *args, **kwargs):
         # Bo'sh email string ni None ga o'girish (unique constraint uchun)
