@@ -698,10 +698,15 @@ class FloorLeaderSerializer(serializers.ModelSerializer):
 
 class AttendanceRecordSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
-    
+    student_last_name = serializers.CharField(source='student.last_name', read_only=True)
+    session_date = serializers.DateField(source='session.date', read_only=True)
+    floor_name = serializers.CharField(source='session.floor.name', read_only=True)
+
     class Meta:
         model = AttendanceRecord
-        fields = '__all__'
+        fields = ['id', 'session', 'session_date', 'floor_name',
+                  'student', 'student_name', 'student_last_name',
+                  'status', 'created_at']
 
 
 class AttendanceSessionSerializer(serializers.ModelSerializer):
@@ -1026,18 +1031,19 @@ class AttendanceSessionCreateSerializer(serializers.Serializer):
     records = AttendanceRecordInputSerializer(
         many=True,
         required=False,
-        help_text="Talabalar va statuslari. Bo'sh qolsa qavatdagi barcha talabalar 'in' bo'ladi"
+        help_text="[{student_id: 1, status: 'in'}, ...] Bo'sh qolsa hammasi 'in'"
     )
 
     def create(self, validated_data):
         from datetime import date as date_cls
-        floor = validated_data['floor']
-        leader = validated_data['leader']
+
+        # floor va leader view dan save() orqali keladi
+        floor = validated_data.pop('floor')
+        leader = validated_data.pop('leader')
         day = validated_data.get('date') or date_cls.today()
         records_data = validated_data.get('records', [])
 
-        # Sessiya yaratish
-        session, created = AttendanceSession.objects.get_or_create(
+        session, _ = AttendanceSession.objects.get_or_create(
             date=day,
             floor=floor,
             defaults={'leader': leader}
@@ -1046,7 +1052,9 @@ class AttendanceSessionCreateSerializer(serializers.Serializer):
         if records_data:
             for rec in records_data:
                 try:
-                    student = Student.objects.get(id=rec['student_id'], is_active=True, floor=floor)
+                    student = Student.objects.get(
+                        id=rec['student_id'], is_active=True, floor=floor
+                    )
                     AttendanceRecord.objects.update_or_create(
                         session=session,
                         student=student,
@@ -1055,7 +1063,6 @@ class AttendanceSessionCreateSerializer(serializers.Serializer):
                 except Student.DoesNotExist:
                     pass
         else:
-            # Barcha qavatdagi talabalar 'in'
             for student in Student.objects.filter(floor=floor, is_active=True):
                 AttendanceRecord.objects.get_or_create(
                     session=session,

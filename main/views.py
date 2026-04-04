@@ -2074,86 +2074,104 @@ class FloorLeaderDashboardView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from django.utils import timezone
+        from datetime import timedelta
+        from django.db.models import Sum
+
         user = request.user
         try:
-            floor_leader = FloorLeader.objects.select_related('floor', 'floor__dormitory').get(user=user)
+            floor_leader = FloorLeader.objects.select_related(
+                'floor', 'floor__dormitory'
+            ).get(user=user)
         except FloorLeader.DoesNotExist:
             return Response({"error": "Siz qavat sardori emassiz"}, status=status.HTTP_403_FORBIDDEN)
 
         floor = floor_leader.floor
-        students = Student.objects.filter(floor=floor, is_active=True)
-
-        # Davomat statistikasi (bugungi)
-        from django.utils import timezone
+        total_students = Student.objects.filter(floor=floor, is_active=True).count()
         today = timezone.now().date()
+
+        # ── Bugungi davomat ──────────────────────────────────────
         today_session = AttendanceSession.objects.filter(floor=floor, date=today).first()
-        today_present = 0
-        today_absent = 0
         if today_session:
             today_present = AttendanceRecord.objects.filter(session=today_session, status='in').count()
-            today_absent = AttendanceRecord.objects.filter(session=today_session, status='out').count()
+            today_absent  = AttendanceRecord.objects.filter(session=today_session, status='out').count()
+            today_rate    = round(today_present / total_students * 100, 1) if total_students else 0
+        else:
+            today_present = today_absent = today_rate = 0
 
-        # Oxirgi 7 kunlik davomat
-        from datetime import timedelta
+        # ── Oxirgi 7 kunlik davomat ──────────────────────────────
         last_7_days = []
         for i in range(6, -1, -1):
             day = today - timedelta(days=i)
             session = AttendanceSession.objects.filter(floor=floor, date=day).first()
-            present = AttendanceRecord.objects.filter(session=session, status='in').count() if session else 0
+            present = AttendanceRecord.objects.filter(session=session, status='in').count() if session else None
+            absent  = AttendanceRecord.objects.filter(session=session, status='out').count() if session else None
+            rate    = round(present / total_students * 100, 1) if (session and total_students) else None
             last_7_days.append({
-                "date": str(day),
-                "present": present,
-                "total": students.count()
+                "date":         str(day),
+                "has_session":  session is not None,
+                "present":      present,
+                "absent":       absent,
+                "total":        total_students,
+                "present_rate": rate,
             })
 
-        # Yig'im statistikasi
-        from django.db.models import Sum
-        collections = Collection.objects.filter(floor=floor)
-        total_collections = collections.count()
+        # ── Xonalar ──────────────────────────────────────────────
+        rooms_data = []
+        for r in floor.room_set.all():
+            occ  = Student.objects.filter(room=r, is_active=True).count()
+            cap  = r.capacity or 0
+            rooms_data.append({
+                "room":     r.name,
+                "capacity": cap,
+                "occupied": occ,
+                "free":     max(cap - occ, 0),
+            })
+
+        # ── Yig'imlar ────────────────────────────────────────────
+        collections     = Collection.objects.filter(floor=floor)
         total_collected = CollectionRecord.objects.filter(
             collection__floor=floor, status="To'lagan"
         ).count()
+        total_uncollected = CollectionRecord.objects.filter(
+            collection__floor=floor, status="To'lamagan"
+        ).count()
 
-        # Vazifalar
+        # ── Vazifalar ────────────────────────────────────────────
         tasks = TaskForLeader.objects.filter(user=user)
 
         return Response({
             "floor": {
-                "id": floor.id,
-                "name": floor.name,
-                "gender": floor.gender,
+                "id":        floor.id,
+                "name":      floor.name,
+                "gender":    floor.gender,
                 "dormitory": floor.dormitory.name,
             },
             "students": {
-                "total": students.count(),
-                "by_room": [
-                    {
-                        "room": r.name,
-                        "capacity": r.capacity,
-                        "occupied": Student.objects.filter(room=r, is_active=True).count(),
-                        "free": max((r.capacity or 0) - Student.objects.filter(room=r, is_active=True).count(), 0),
-                    }
-                    for r in floor.room_set.all()
-                ]
+                "total":   total_students,
+                "by_room": rooms_data,
             },
             "attendance_today": {
                 "has_session": today_session is not None,
-                "session_id": today_session.id if today_session else None,
-                "present": today_present,
-                "absent": today_absent,
-                "total": students.count(),
+                "session_id":  today_session.id if today_session else None,
+                "total":       total_students,
+                "present":     today_present,
+                "absent":      today_absent,
+                "present_rate": today_rate,
+                "absent_rate":  round(100 - today_rate, 1) if today_session else 0,
             },
             "attendance_last_7_days": last_7_days,
             "collections": {
-                "total": total_collections,
-                "paid_records": total_collected,
+                "total":       collections.count(),
+                "paid":        total_collected,
+                "unpaid":      total_uncollected,
             },
             "tasks": {
-                "total": tasks.count(),
-                "pending": tasks.filter(status='PENDING').count(),
+                "total":       tasks.count(),
+                "pending":     tasks.filter(status='PENDING').count(),
                 "in_progress": tasks.filter(status='IN_PROGRESS').count(),
-                "completed": tasks.filter(status='COMPLETED').count(),
-            }
+                "completed":   tasks.filter(status='COMPLETED').count(),
+            },
         }, status=status.HTTP_200_OK)
 
 
