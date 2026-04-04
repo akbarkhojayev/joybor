@@ -1034,9 +1034,13 @@ class AttendanceSessionListView(generics.ListAPIView):
 
 
 class AttendanceSessionCreateView(generics.CreateAPIView):
-    queryset = AttendanceSession.objects.all()
     serializer_class = AttendanceSessionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsFloorLeader]
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        floor_leader = FloorLeader.objects.get(user=user)
+        serializer.save(floor=floor_leader.floor, leader=floor_leader)
 
 
 class AttendanceSessionDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -1049,6 +1053,8 @@ class AttendanceSessionDetailView(generics.RetrieveUpdateDestroyAPIView):
         user = self.request.user
         if user.is_superuser:
             return AttendanceSession.objects.all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            return AttendanceSession.objects.filter(floor__dormitory__admin=user)
         elif hasattr(user, 'role') and user.role == 'sardor':
             floor_leader = FloorLeader.objects.filter(user=user).first()
             if floor_leader:
@@ -1058,17 +1064,43 @@ class AttendanceSessionDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 # ==================== ATTENDANCE RECORD VIEWS ====================
 class AttendanceRecordListView(generics.ListCreateAPIView):
-    queryset = AttendanceRecord.objects.all()
     serializer_class = AttendanceRecordSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['session', 'student', 'status']
 
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return AttendanceRecord.objects.none()
+        user = self.request.user
+        if user.is_superuser:
+            return AttendanceRecord.objects.all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            return AttendanceRecord.objects.filter(session__floor__dormitory__admin=user)
+        elif hasattr(user, 'role') and user.role == 'sardor':
+            floor_leader = FloorLeader.objects.filter(user=user).first()
+            if floor_leader:
+                return AttendanceRecord.objects.filter(session__floor=floor_leader.floor)
+        return AttendanceRecord.objects.none()
+
 
 class AttendanceRecordDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = AttendanceRecord.objects.all()
     serializer_class = AttendanceRecordSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return AttendanceRecord.objects.none()
+        user = self.request.user
+        if user.is_superuser:
+            return AttendanceRecord.objects.all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            return AttendanceRecord.objects.filter(session__floor__dormitory__admin=user)
+        elif hasattr(user, 'role') and user.role == 'sardor':
+            floor_leader = FloorLeader.objects.filter(user=user).first()
+            if floor_leader:
+                return AttendanceRecord.objects.filter(session__floor=floor_leader.floor)
+        return AttendanceRecord.objects.none()
 
 
 # ==================== COLLECTION VIEWS ====================
@@ -1972,6 +2004,7 @@ class StaffListView(generics.ListCreateAPIView):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['position', 'is_active']
     search_fields = ['name', 'last_name', 'phone']
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
@@ -1996,6 +2029,7 @@ class StaffListView(generics.ListCreateAPIView):
 class StaffDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = StaffSerializer
     permission_classes = [IsAdminOrDormitoryAdmin]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):

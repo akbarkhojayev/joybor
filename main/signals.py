@@ -73,6 +73,7 @@ def handle_application_approval(sender, instance, created, **kwargs):
             direction=instance.direction,
             dormitory=instance.dormitory,
             passport=instance.passport,
+            jshshir=instance.jshshir,
             group=instance.group,
             course=instance.course,
             gender=instance.gender,

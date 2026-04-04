@@ -253,6 +253,7 @@ class Application(models.Model):
     course = models.CharField(max_length=120, blank=True, null=True)
     group = models.CharField(max_length=120, blank=True, null=True)
     phone = models.CharField(blank=True, null=True, max_length=25)
+    jshshir = models.CharField(max_length=120, blank=True, null=True)
     passport = models.CharField(max_length=9, unique=True, blank=True, null=True)
     gender = models.CharField(
         max_length=10,
@@ -541,6 +542,8 @@ class Staff(models.Model):
     position = models.CharField(max_length=20,blank=True, null=True)
     phone = models.CharField(max_length=25, blank=True, null=True)
     salary = models.IntegerField(blank=True, null=True)
+    photo = models.ImageField(blank=True, null=True)
+    file = models.FileField(blank=True, null=True)
     hired_date = models.DateField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

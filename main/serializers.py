@@ -928,7 +928,12 @@ class StaffSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Staff
-        fields = '__all__'
+        fields = [
+            'id', 'dormitory', 'dormitory_name',
+            'name', 'last_name', 'position', 'phone',
+            'salary', 'photo', 'file', 'hired_date',
+            'is_active', 'created_at',
+        ]
         read_only_fields = ['dormitory']
 
 
