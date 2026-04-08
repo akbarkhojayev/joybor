@@ -169,6 +169,9 @@ urlpatterns = [
     path('attendance-sessions/full-create/', AttendanceSessionFullCreateView.as_view(), name='attendance-session-full-create'),
     path('attendance-records/<int:pk>/update/', AttendanceRecordUpdateView.as_view(), name='attendance-record-update'),
 
+    # Admin floors stats
+    path('admin/floors-stats/', AdminFloorsStatsView.as_view(), name='admin-floors-stats'),
+
     # Excel Export
     path('export/students/', ExportStudentsExcelView.as_view(), name='export-students'),
     path('export/payments/', ExportPaymentsExcelView.as_view(), name='export-payments'),

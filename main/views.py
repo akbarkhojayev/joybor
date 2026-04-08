@@ -1032,6 +1032,54 @@ class AttendanceSessionListView(generics.ListAPIView):
                 return AttendanceSession.objects.filter(floor=floor_leader.floor)
         return AttendanceSession.objects.none()
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        # Summary hisoblash
+        user = request.user
+        total_students = 0
+        total_present  = 0
+        total_absent   = 0
+
+        if hasattr(user, 'role') and user.role == 'sardor':
+            floor_leader = FloorLeader.objects.filter(user=user).first()
+            if floor_leader:
+                total_students = Student.objects.filter(
+                    floor=floor_leader.floor, is_active=True
+                ).count()
+
+        # Filtrlangan sessiyalar bo'yicha yig'ma
+        session_ids = queryset.values_list('id', flat=True)
+        total_present = AttendanceRecord.objects.filter(
+            session_id__in=session_ids, status='in'
+        ).count()
+        total_absent = AttendanceRecord.objects.filter(
+            session_id__in=session_ids, status='out'
+        ).count()
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            response = self.get_paginated_response(serializer.data)
+            response.data['summary'] = {
+                "total_students": total_students,
+                "total_sessions": queryset.count(),
+                "total_present":  total_present,
+                "total_absent":   total_absent,
+            }
+            return response
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            "summary": {
+                "total_students": total_students,
+                "total_sessions": queryset.count(),
+                "total_present":  total_present,
+                "total_absent":   total_absent,
+            },
+            "results": serializer.data,
+        })
+
 
 class AttendanceSessionCreateView(generics.CreateAPIView):
     serializer_class = AttendanceSessionSerializer
@@ -2507,3 +2555,118 @@ class ExportPaymentsExcelView(APIView):
         response['Content-Disposition'] = 'attachment; filename="tolovlar.xlsx"'
         wb.save(response)
         return response
+
+
+# ==================== ADMIN FLOORS STATS VIEW ====================
+class AdminFloorsStatsView(APIView):
+    """Admin uchun barcha qavatlar statistikasi (FloorLeaderDashboard kabi)"""
+    permission_classes = [IsAdminOrDormitoryAdmin]
+
+    def get(self, request):
+        from django.utils import timezone
+        from datetime import timedelta
+
+        user = request.user
+
+        if user.is_superuser:
+            floors = Floor.objects.select_related('dormitory').all()
+        elif hasattr(user, 'role') and user.role == 'admin':
+            dormitory = Dormitory.objects.filter(admin=user).first()
+            if not dormitory:
+                return Response({"error": "Yotoqxona topilmadi"}, status=404)
+            floors = Floor.objects.filter(dormitory=dormitory)
+        else:
+            return Response({"error": "Ruxsat yo'q"}, status=403)
+
+        today = timezone.now().date()
+        result = []
+
+        for floor in floors:
+            total_students = Student.objects.filter(floor=floor, is_active=True).count()
+
+            # Bugungi davomat
+            today_session = AttendanceSession.objects.filter(floor=floor, date=today).first()
+            if today_session:
+                present = AttendanceRecord.objects.filter(session=today_session, status='in').count()
+                absent  = AttendanceRecord.objects.filter(session=today_session, status='out').count()
+                rate    = round(present / total_students * 100, 1) if total_students else 0
+            else:
+                present = absent = rate = 0
+
+            # Oxirgi 7 kun
+            last_7_days = []
+            for i in range(6, -1, -1):
+                day = today - timedelta(days=i)
+                session = AttendanceSession.objects.filter(floor=floor, date=day).first()
+                p = AttendanceRecord.objects.filter(session=session, status='in').count() if session else None
+                a = AttendanceRecord.objects.filter(session=session, status='out').count() if session else None
+                last_7_days.append({
+                    "date": str(day),
+                    "has_session": session is not None,
+                    "present": p,
+                    "absent": a,
+                    "present_rate": round(p / total_students * 100, 1) if (session and total_students) else None,
+                })
+
+            # Xonalar
+            rooms_data = []
+            for r in floor.room_set.all():
+                occ = Student.objects.filter(room=r, is_active=True).count()
+                cap = r.capacity or 0
+                rooms_data.append({
+                    "room": r.name,
+                    "capacity": cap,
+                    "occupied": occ,
+                    "free": max(cap - occ, 0),
+                })
+
+            # Sardor
+            leader = FloorLeader.objects.filter(floor=floor).select_related('user').first()
+
+            # Yig'imlar
+            paid   = CollectionRecord.objects.filter(collection__floor=floor, status="To'lagan").count()
+            unpaid = CollectionRecord.objects.filter(collection__floor=floor, status="To'lamagan").count()
+
+            # Vazifalar
+            tasks = TaskForLeader.objects.filter(user=leader.user) if leader else TaskForLeader.objects.none()
+
+            result.append({
+                "floor": {
+                    "id": floor.id,
+                    "name": floor.name,
+                    "gender": floor.gender,
+                    "dormitory": floor.dormitory.name,
+                },
+                "leader": {
+                    "id": leader.id if leader else None,
+                    "username": leader.user.username if leader else None,
+                    "full_name": f"{leader.user.first_name} {leader.user.last_name}".strip() if leader else None,
+                },
+                "students": {
+                    "total": total_students,
+                    "by_room": rooms_data,
+                },
+                "attendance_today": {
+                    "has_session": today_session is not None,
+                    "session_id": today_session.id if today_session else None,
+                    "total": total_students,
+                    "present": present,
+                    "absent": absent,
+                    "present_rate": rate,
+                    "absent_rate": round(100 - rate, 1) if today_session else 0,
+                },
+                "attendance_last_7_days": last_7_days,
+                "collections": {
+                    "total": Collection.objects.filter(floor=floor).count(),
+                    "paid": paid,
+                    "unpaid": unpaid,
+                },
+                "tasks": {
+                    "total": tasks.count(),
+                    "pending": tasks.filter(status='PENDING').count(),
+                    "in_progress": tasks.filter(status='IN_PROGRESS').count(),
+                    "completed": tasks.filter(status='COMPLETED').count(),
+                },
+            })
+
+        return Response(result, status=status.HTTP_200_OK)

@@ -211,6 +211,7 @@ class Student(models.Model):
     dormitory = models.ForeignKey(Dormitory, on_delete=models.CASCADE, blank=True, null=True)
     floor = models.ForeignKey(Floor, on_delete=models.CASCADE, blank=True, null=True, related_name='students')
     passport = models.CharField(max_length=9, unique=True, blank=True, null=True)
+    jshshir = models.CharField(max_length=14, blank=True, null=True)
     group = models.CharField(max_length=120, blank=True, null=True)
     course = models.CharField(max_length=120, choices=COURSE_CHOICES, default='1-kurs')
     gender = models.CharField(max_length=120, choices=GENDER_CHOICES, default='Erkak')

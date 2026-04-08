@@ -45,15 +45,18 @@ def handle_application_approval(sender, instance, created, **kwargs):
     # Faqat status o'zgarganda ishlaydi (created=False)
     if not created and instance.status == 'Approved':
         # Agar bu ariza uchun allaqachon Student yaratilgan bo'lsa, qayta yaratmaymiz
-        if Student.objects.filter(passport=instance.passport).exists():
-            # Lekin bildirishnoma yuborilmagan bo'lsa, yuboramiz
+        already_exists = False
+        if instance.passport:
+            already_exists = Student.objects.filter(passport=instance.passport).exists()
+        elif instance.user:
+            already_exists = Student.objects.filter(user=instance.user).exists()
+
+        if already_exists:
             if instance.user:
-                # Avval yuborilgan bildirishnoma bormi tekshiramiz
                 existing_notification = ApplicationNotification.objects.filter(
                     user=instance.user,
                     message__contains=f"{instance.dormitory.name} yotoqxonasiga qabul qilindingiz"
                 ).exists()
-                
                 if not existing_notification:
                     ApplicationNotification.objects.create(
                         user=instance.user,
@@ -62,30 +65,35 @@ def handle_application_approval(sender, instance, created, **kwargs):
             return
         
         # Yangi Student yaratish (is_active=False, xona biriktirilmagan)
-        student = Student.objects.create(
-            user=instance.user,
-            name=instance.name,
-            last_name=instance.last_name,
-            middle_name=instance.middle_name,
-            province=instance.province,
-            district=instance.district,
-            faculty=instance.faculty,
-            direction=instance.direction,
-            dormitory=instance.dormitory,
-            passport=instance.passport,
-            jshshir=instance.jshshir,
-            group=instance.group,
-            course=instance.course,
-            gender=instance.gender,
-            phone=instance.phone,
-            picture=instance.user_image if hasattr(instance, 'user_image') else None,
-            passport_image_first=instance.passport_image_first,
-            passport_image_second=instance.passport_image_second,
-            document=instance.document,
-            status='Tasdiqlandi',
-            placement_status='Qabul qilindi',
-            is_active=False
-        )
+        try:
+            student = Student.objects.create(
+                user=instance.user,
+                name=instance.name,
+                last_name=instance.last_name,
+                middle_name=instance.middle_name,
+                province=instance.province,
+                district=instance.district,
+                faculty=instance.faculty,
+                direction=instance.direction,
+                dormitory=instance.dormitory,
+                passport=instance.passport,
+                jshshir=instance.jshshir,
+                group=instance.group,
+                course=instance.course,
+                gender=instance.gender,
+                phone=instance.phone,
+                picture=instance.user_image if hasattr(instance, 'user_image') else None,
+                passport_image_first=instance.passport_image_first,
+                passport_image_second=instance.passport_image_second,
+                document=instance.document,
+                status='Tasdiqlandi',
+                placement_status='Qabul qilindi',
+                is_active=False
+            )
+            print(f"✅ Student yaratildi: {student.name} {student.last_name} (ID: {student.id})")
+        except Exception as e:
+            print(f"❌ Student yaratishda xato: {e}")
+            return
         
         # Foydalanuvchiga bildirishnoma yuborish
         if instance.user:
